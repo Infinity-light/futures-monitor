@@ -1,0 +1,39 @@
+# Ignore everything except futures_monitor
+/*
+!futures_monitor/
+!tests/
+!.claude/discovery/
+!.claude/planning/
+!README.md
+!requirements.txt
+!.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+
+# Data and logs
+.data/
+*.db
+*.log
+
+# Node.js
+node_modules/
+
+# Build outputs
+futures_monitor/web/dist/
+
+# Environment variables
+.env
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,5 @@
+tqsdk
+plyer
+fastapi
+uvicorn[standard]
+pydantic

@@ -1,0 +1,17 @@
+{
+  "symbols": [
+    "ALL 全部品种（自动读取当前有效合约）"
+  ],
+  "take_profit_pct": 0.5,
+  "stop_loss_pct": 0.5,
+  "position_pct": 0.1,
+  "enable_sms": false,
+  "alert_sound": true,
+  "data_dir": ".data",
+  "timezone": "Asia/Shanghai",
+  "use_real_market_data": true,
+  "strict_real_mode": true,
+  "ui_refresh_ms": 800,
+  "tq_account": "18665769785zwl",
+  "tq_password": "nilym"
+}

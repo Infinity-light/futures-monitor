@@ -1,0 +1,51 @@
+import unittest
+from unittest.mock import patch
+
+from futures_monitor.config import AppConfig
+from futures_monitor.market import MarketDataProvider
+from futures_monitor.utils.logger import get_logger
+
+
+class TestMarketDataProvider(unittest.TestCase):
+    def test_mock_mode_streams_data(self) -> None:
+        cfg = AppConfig(use_real_market_data=False)
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.mock"))
+
+        rows = list(provider.stream_1m_klines(["SHFE.rb2410"], max_updates=4))
+
+        self.assertGreaterEqual(len(rows), 4)
+        symbols = [s for s, _ in rows]
+        self.assertTrue(all(s == "SHFE.rb2410" for s in symbols))
+
+    def test_strict_real_mode_raises_when_auth_missing(self) -> None:
+        cfg = AppConfig(use_real_market_data=True, strict_real_mode=True, tq_account="", tq_password="")
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.strict"))
+
+        with self.assertRaises(ValueError):
+            list(provider.stream_1m_klines(["SHFE.rb2410"], max_updates=1))
+
+    def test_non_strict_real_mode_fallbacks_to_mock_when_auth_missing(self) -> None:
+        cfg = AppConfig(use_real_market_data=True, strict_real_mode=False, tq_account="", tq_password="")
+        logger = get_logger("test.market.fallback")
+        provider = MarketDataProvider(config=cfg, logger=logger)
+
+        with patch.object(logger, "warning") as mocked_warning:
+            rows = list(provider.stream_1m_klines(["SHFE.rb2410"], max_updates=2))
+
+        self.assertEqual(len(rows), 2)
+        self.assertGreaterEqual(mocked_warning.call_count, 1)
+        self.assertIn("fallback to mock", mocked_warning.call_args_list[0].args[0])
+
+    def test_get_latest_snapshot_returns_latest(self) -> None:
+        cfg = AppConfig(use_real_market_data=False)
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.snapshot"))
+
+        rows = list(provider.stream_1m_klines(["SHFE.rb2410", "DCE.m2409"], max_updates=3))
+        self.assertGreaterEqual(len(rows), 3)
+
+        snap = provider.get_latest_snapshot(["SHFE.rb2410", "DCE.m2409"])
+        self.assertIn("SHFE.rb2410", snap)
+
+
+if __name__ == "__main__":
+    unittest.main()
