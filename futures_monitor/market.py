@@ -20,6 +20,10 @@ from typing import Callable, Iterator
 
 
 _ALL_SYMBOL_ALIASES = {"ALL", "全部"}
+_TQ_AUTH_GUIDANCE = (
+    "请填写可用于 TqSdk/快期认证的快期账户（手机号、邮箱或用户名）及对应密码，"
+    "不是期货实盘账号，也不是普通模拟交易编号。"
+)
 
 from futures_monitor.strategy.breakout import Kline
 
@@ -124,7 +128,10 @@ class MarketDataProvider:
         stop_flag: Callable[[], bool] | None = None,
     ) -> Iterator[tuple[str, Kline]]:
         if not self._config.tq_account or not self._config.tq_password:
-            raise ValueError("tq_account/tq_password is required when use_real_market_data=True")
+            raise ValueError(
+                "真实行情模式需要填写可用于 TqSdk/快期认证的快期账户（手机号、邮箱或用户名）及对应密码，"
+                "不是期货实盘账号，也不是普通模拟交易编号。"
+            )
 
         from tqsdk import TqApi, TqAuth
 
@@ -175,7 +182,7 @@ class MarketDataProvider:
             yield from self._stream_real(symbols, max_updates=max_updates, stop_flag=stop_flag)
         except Exception as exc:
             if strict_real_mode:
-                raise
+                raise ValueError(f"{exc} 如确认账号密码无误，请检查该账户是否开通快期/TqSdk认证权限。") from exc
             self._logger.warning("Real market data unavailable, fallback to mock stream: %s", exc)
             yield from self._stream_mock(symbols, max_updates=max_updates, stop_flag=stop_flag)
 

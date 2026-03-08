@@ -2,6 +2,7 @@ import unittest
 
 from futures_monitor.server.schemas import (
     ConfigDTO,
+    ErrorResponse,
     HealthResponse,
     MonitorControlRequest,
     MonitorStatus,
@@ -52,6 +53,11 @@ class TestServerSchemas(unittest.TestCase):
         self.assertEqual(payload.tq_password, "demo-pass")
         self.assertTrue(payload.use_real_market_data)
         self.assertFalse(payload.strict_real_mode)
+
+    def test_error_response_supports_detail_and_hint(self) -> None:
+        payload = ErrorResponse(detail="认证失败", hint="请填写快期账户")
+        self.assertEqual(payload.detail, "认证失败")
+        self.assertEqual(payload.hint, "请填写快期账户")
 
 
 if __name__ == "__main__":

@@ -99,6 +99,41 @@ class TestServerAppRoutes(unittest.TestCase):
         self.assertTrue(monitor.config.use_real_market_data)
         self.assertFalse(monitor.config.strict_real_mode)
 
+    def test_monitor_control_returns_human_auth_hint_when_real_credentials_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = str(Path(temp_dir) / 'config.json')
+            save_config(
+                AppConfig(
+                    symbols=['SHFE.rb2405'],
+                    tq_account='',
+                    tq_password='',
+                    use_real_market_data=True,
+                    strict_real_mode=True,
+                ),
+                config_path,
+            )
+
+            from futures_monitor.server.services import config_service as config_module
+            from futures_monitor.server.services import monitor_service as monitor_module
+
+            original_monitor = monitor_module._monitor_service_instance
+            original_config = config_module._config_service_instance
+            monitor_module._monitor_service_instance = monitor_module.MonitorService(config_path)
+            config_module._config_service_instance = config_module.ConfigService(config_path)
+
+            try:
+                with TestClient(create_app()) as client:
+                    response = client.post('/api/monitor/control', json={'action': 'start', 'symbols': ['SHFE.rb2405']})
+                    payload = response.json()
+            finally:
+                monitor_module._monitor_service_instance = original_monitor
+                config_module._config_service_instance = original_config
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload['symbols'], ['SHFE.rb2405'])
+        self.assertIn(payload['connection_status'], ('connecting', 'error'))
+        self.assertIn(payload['running'], (True, False))
+
 
 if __name__ == '__main__':
     unittest.main()

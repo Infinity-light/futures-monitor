@@ -129,12 +129,13 @@ export const useMonitorStore = defineStore('monitor', {
         const status = await controlMonitor('start', symbols)
         this.applyStatusSnapshot(status)
       } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
         this.addLog({
           timestamp: new Date().toISOString(),
           level: 'ERROR',
-          message: `启动监控失败: ${error instanceof Error ? error.message : String(error)}`
+          message: `启动监控失败：${detail}`
         })
-        throw error
+        throw new Error(detail)
       }
     },
 

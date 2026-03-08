@@ -69,6 +69,13 @@ class MarkBoughtRequest(BaseModel):
     symbol: str
 
 
+class ErrorResponse(BaseModel):
+    """Error payload returned to the frontend."""
+
+    detail: str
+    hint: str | None = None
+
+
 class ConfigDTO(BaseModel):
     """Configuration data transfer object."""
 

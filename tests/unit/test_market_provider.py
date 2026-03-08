@@ -21,7 +21,7 @@ class TestMarketDataProvider(unittest.TestCase):
         cfg = AppConfig(use_real_market_data=True, strict_real_mode=True, tq_account="", tq_password="")
         provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.strict"))
 
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "可用于 TqSdk/快期认证的快期账户"):
             list(provider.stream_1m_klines(["SHFE.rb2410"], max_updates=1))
 
     def test_non_strict_real_mode_fallbacks_to_mock_when_auth_missing(self) -> None:
@@ -35,6 +35,7 @@ class TestMarketDataProvider(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertGreaterEqual(mocked_warning.call_count, 1)
         self.assertIn("fallback to mock", mocked_warning.call_args_list[0].args[0])
+        self.assertIn("可用于 TqSdk/快期认证的快期账户", str(mocked_warning.call_args_list[0].args[1]))
 
     def test_get_latest_snapshot_returns_latest(self) -> None:
         cfg = AppConfig(use_real_market_data=False)

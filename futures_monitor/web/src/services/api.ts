@@ -20,10 +20,57 @@
 
 import axios from 'axios'
 
+export interface ApiErrorPayload {
+  detail?: string | Record<string, unknown>
+  hint?: string
+}
+
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 10000
 })
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function extractString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function extractApiErrorMessage(payload: unknown): string {
+  if (!isRecord(payload)) {
+    return '请求失败，请稍后重试'
+  }
+
+  const detail = payload.detail
+  const topLevelHint = extractString(payload.hint)
+
+  if (typeof detail === 'string') {
+    return topLevelHint ? `${detail} ${topLevelHint}` : detail
+  }
+
+  if (isRecord(detail)) {
+    const nestedDetail = extractString(detail.detail)
+    const nestedHint = extractString(detail.hint)
+    const message = nestedDetail ?? '请求失败，请稍后重试'
+    const hint = nestedHint ?? topLevelHint
+    return hint ? `${message} ${hint}` : message
+  }
+
+  return topLevelHint ?? '请求失败，请稍后重试'
+}
+
+apiClient.interceptors.response.use(
+  response => response,
+  error => {
+    if (axios.isAxiosError(error) && error.response) {
+      const message = extractApiErrorMessage(error.response.data)
+      return Promise.reject(new Error(message))
+    }
+    return Promise.reject(error)
+  }
+)
 
 export interface ConfigResponse {
   symbols: string[]

@@ -16,7 +16,7 @@ functions:
 -->
 <template>
   <el-container class="dashboard-view">
-    <el-aside width="320px" class="sidebar">
+    <el-aside width="380px" class="sidebar">
       <ControlPanel />
     </el-aside>
 
@@ -76,8 +76,8 @@ onUnmounted(() => {
 }
 
 .sidebar {
-  padding: 12px;
-  background-color: #fff;
+  padding: 16px;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
   border-right: 1px solid #dcdfe6;
   overflow-y: auto;
 }
