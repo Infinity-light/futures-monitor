@@ -70,10 +70,7 @@ class MarkBoughtRequest(BaseModel):
 
 
 class ConfigDTO(BaseModel):
-    """Configuration data transfer object.
-
-    Note: tq_password is always masked in responses for security.
-    """
+    """Configuration data transfer object."""
 
     symbols: list[str] = Field(default_factory=list)
     take_profit_pct: float = 0.5

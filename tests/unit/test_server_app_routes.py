@@ -40,7 +40,7 @@ class TestServerAppRoutes(unittest.TestCase):
         self.assertEqual(pong_message['type'], 'pong')
         self.assertEqual(pong_message['data']['received'], 'ping')
 
-    def test_config_update_masks_password_and_refreshes_runtime(self) -> None:
+    def test_config_get_and_update_return_real_password_and_refresh_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = str(Path(temp_dir) / 'config.json')
             save_config(
@@ -64,6 +64,7 @@ class TestServerAppRoutes(unittest.TestCase):
 
             try:
                 with TestClient(create_app()) as client:
+                    initial = client.get('/api/config').json()
                     response = client.put(
                         '/api/config',
                         json={
@@ -90,9 +91,10 @@ class TestServerAppRoutes(unittest.TestCase):
                 config_module._config_service_instance = original_config
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(initial['tq_password'], 'old-password')
         self.assertEqual(payload['tq_account'], 'new-account')
-        self.assertEqual(payload['tq_password'], '***')
-        self.assertEqual(fetched['tq_password'], '***')
+        self.assertEqual(payload['tq_password'], 'new-password')
+        self.assertEqual(fetched['tq_password'], 'new-password')
         self.assertEqual(monitor.config.tq_account, 'new-account')
         self.assertTrue(monitor.config.use_real_market_data)
         self.assertFalse(monitor.config.strict_real_mode)

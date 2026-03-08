@@ -34,24 +34,13 @@ def get_config_service_dependency() -> ConfigService:
     return get_config_service()
 
 
-def _mask_password(dto: ConfigDTO) -> ConfigDTO:
-    """Return a response-safe copy of the config with masked password."""
-    data = dto.model_dump()
-    if data.get("tq_password"):
-        data["tq_password"] = "***"
-    return ConfigDTO(**data)
-
-
 @router.get("/config", response_model=ConfigDTO)
 def get_config(
     service: ConfigService = Depends(get_config_service_dependency),
 ) -> ConfigDTO:
-    """Return current configuration.
-
-    Note: The tq_password field is masked (shown as ***) for security.
-    """
+    """Return current configuration exactly as stored."""
     try:
-        return _mask_password(service.get_config())
+        return service.get_config()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to load config: {exc}") from exc
 
@@ -61,22 +50,9 @@ def update_config(
     payload: ConfigDTO,
     service: ConfigService = Depends(get_config_service_dependency),
 ) -> ConfigDTO:
-    """Update configuration.
-
-    Args:
-        payload: New configuration values. Use tq_password="***" to keep existing password.
-
-    Note:
-        Password is not logged for security reasons.
-    """
+    """Update configuration using the exact values submitted by the client."""
     try:
-        current = service.get_config()
-        next_payload = payload.model_copy(deep=True)
-        if next_payload.tq_password == "***":
-            next_payload.tq_password = current.tq_password
-
-        result = service.update_config(next_payload)
-        return _mask_password(result)
+        return service.update_config(payload)
     except HTTPException:
         raise
     except Exception as exc:

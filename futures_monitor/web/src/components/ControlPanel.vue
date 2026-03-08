@@ -82,7 +82,7 @@ functions:
             v-model="form.tq_password"
             type="password"
             show-password
-            placeholder="保存后将继续显示为 ***"
+            placeholder="请输入 tq_password，点击右侧图标可查看真实密码"
           />
         </el-form-item>
 

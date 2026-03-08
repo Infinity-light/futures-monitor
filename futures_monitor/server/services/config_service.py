@@ -86,12 +86,7 @@ class ConfigService:
         )
 
     def get_config(self) -> "ConfigDTO":
-        """Load configuration from file and return as DTO.
-
-        Returns:
-            ConfigDTO with current configuration. Password is included but
-            should be masked by the API layer before sending to client.
-        """
+        """Load configuration from file and return as DTO."""
         try:
             config = load_config(self._config_path)
             logger.info(f"Configuration loaded from {self._config_path}")
