@@ -18,12 +18,16 @@
 import { defineStore } from 'pinia'
 import {
   controlMonitor,
-  markBought as markBoughtApi
+  getConfig,
+  getMonitorStatus,
+  markBought as markBoughtApi,
+  type ConfigResponse,
+  type MonitorStatus
 } from '../services/api'
 
-export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
+export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 'error'
 
-export type SymbolStatus = 'MONITORING' | 'BREAKOUT_DETECTED' | 'BOUGHT' | 'STOPPED'
+export type SymbolStatus = 'MONITORING' | 'BREAKOUT_DETECTED' | 'HOLDING' | 'STOPPED'
 
 export interface SymbolRow {
   symbol: string
@@ -46,20 +50,58 @@ export interface LogEntry {
 
 export interface SymbolRowData {
   symbol: string
-  status?: SymbolStatus
-  last_price?: number
-  day_high?: number
-  day_low?: number
-  breakout_price?: number
-  take_profit?: number
-  stop_loss?: number
+  status?: string
+  last_price?: number | null
+  day_high?: number | null
+  day_low?: number | null
+  breakout_price?: number | null
+  take_profit?: number | null
+  stop_loss?: number | null
   last_event?: string
   has_bought?: boolean
+}
+
+function normalizeConnectionStatus(status: string): ConnectionStatus {
+  switch (status) {
+    case 'connected':
+    case 'connecting':
+    case 'disconnected':
+    case 'error':
+      return status
+    case '已连接':
+      return 'connected'
+    case '连接中':
+      return 'connecting'
+    case '已断开':
+    case '未连接':
+      return 'disconnected'
+    case '连接失败':
+      return 'error'
+    default:
+      return 'disconnected'
+  }
+}
+
+function normalizeSymbolStatus(status?: string): SymbolStatus {
+  switch (status) {
+    case 'BREAKOUT_DETECTED':
+      return 'BREAKOUT_DETECTED'
+    case 'HOLDING':
+    case 'BOUGHT':
+      return 'HOLDING'
+    case 'STOPPED':
+      return 'STOPPED'
+    case 'MONITORING':
+    default:
+      return 'MONITORING'
+  }
 }
 
 export const useMonitorStore = defineStore('monitor', {
   state: () => ({
     symbols: [] as string[],
+    symbolInput: '' as string,
+    config: null as ConfigResponse | null,
     isRunning: false,
     connectionStatus: 'disconnected' as ConnectionStatus,
     symbolData: new Map<string, SymbolRow>(),
@@ -74,7 +116,7 @@ export const useMonitorStore = defineStore('monitor', {
 
     activeSymbolCount(state): number {
       return Array.from(state.symbolData.values()).filter(
-        row => row.status === 'MONITORING' || row.status === 'BREAKOUT_DETECTED'
+        row => row.status === 'MONITORING' || row.status === 'BREAKOUT_DETECTED' || row.status === 'HOLDING'
       ).length
     }
   },
@@ -82,9 +124,8 @@ export const useMonitorStore = defineStore('monitor', {
   actions: {
     async startMonitor(symbols: string[]): Promise<void> {
       try {
-        await controlMonitor('start', symbols)
-        this.symbols = symbols
-        this.isRunning = true
+        const status = await controlMonitor('start', symbols)
+        this.applyStatusSnapshot(status)
       } catch (error) {
         this.addLog({
           timestamp: new Date().toISOString(),
@@ -97,8 +138,8 @@ export const useMonitorStore = defineStore('monitor', {
 
     async stopMonitor(): Promise<void> {
       try {
-        await controlMonitor('stop')
-        this.isRunning = false
+        const status = await controlMonitor('stop')
+        this.applyStatusSnapshot(status)
       } catch (error) {
         this.addLog({
           timestamp: new Date().toISOString(),
@@ -112,11 +153,6 @@ export const useMonitorStore = defineStore('monitor', {
     async markBought(symbol: string): Promise<void> {
       try {
         await markBoughtApi(symbol)
-        const row = this.symbolData.get(symbol)
-        if (row) {
-          row.status = 'BOUGHT'
-          row.hasBought = true
-        }
       } catch (error) {
         this.addLog({
           timestamp: new Date().toISOString(),
@@ -131,7 +167,7 @@ export const useMonitorStore = defineStore('monitor', {
       const existing = this.symbolData.get(data.symbol)
       const row: SymbolRow = {
         symbol: data.symbol,
-        status: (data.status as SymbolStatus) || existing?.status || 'MONITORING',
+        status: normalizeSymbolStatus(data.status) || existing?.status || 'MONITORING',
         lastPrice: data.last_price ?? existing?.lastPrice ?? null,
         dayHigh: data.day_high ?? existing?.dayHigh ?? null,
         dayLow: data.day_low ?? existing?.dayLow ?? null,
@@ -142,14 +178,20 @@ export const useMonitorStore = defineStore('monitor', {
         hasBought: data.has_bought ?? existing?.hasBought ?? false
       }
       this.symbolData.set(data.symbol, row)
+      if (!this.symbols.includes(data.symbol)) {
+        this.symbols = [...this.symbols, data.symbol]
+      }
     },
 
     addLog(entry: LogEntry): void {
       this.logs.push(entry)
-      // 限制日志数量，最多保留 100 条
       if (this.logs.length > 100) {
         this.logs.shift()
       }
+    },
+
+    clearLogs(): void {
+      this.logs = []
     },
 
     setConnectionStatus(status: ConnectionStatus): void {
@@ -160,13 +202,25 @@ export const useMonitorStore = defineStore('monitor', {
       this.isRunning = isRunning
     },
 
-    initialize(): void {
-      // 初始化时清空数据
+    async initialize(): Promise<void> {
       this.symbols = []
       this.isRunning = false
       this.connectionStatus = 'disconnected'
       this.symbolData.clear()
       this.logs = []
+
+      const [config, status] = await Promise.all([getConfig(), getMonitorStatus()])
+      this.config = config
+      this.symbolInput = config.symbols.join('\n')
+      this.applyStatusSnapshot(status)
+    },
+
+    applyStatusSnapshot(status: MonitorStatus): void {
+      this.isRunning = status.running
+      this.symbols = status.symbols
+      this.connectionStatus = normalizeConnectionStatus(status.connection_status)
+      this.symbolData = new Map()
+      status.rows.forEach(row => this.handleRowUpdate(row))
     }
   }
 })

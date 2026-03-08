@@ -2,11 +2,15 @@
 /*
 !futures_monitor/
 !tests/
-!.claude/discovery/
-!.claude/planning/
+!.claude/
+!.github/
 !README.md
 !requirements.txt
 !.gitignore
+!.deploy-setup.input.json
+!docker-compose.yml
+!Dockerfile
+!server-init.sh
 
 # Python
 __pycache__/
@@ -30,6 +34,8 @@ node_modules/
 
 # Build outputs
 futures_monitor/web/dist/
+!futures_monitor/web_dist/
+!futures_monitor/web_dist/**
 
 # Environment variables
 .env

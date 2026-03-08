@@ -6,7 +6,7 @@ depends:
 exports:
   - MonitorService
   - ConfigService
-status: PENDING
+status: VERIFIED
 functions:
   - none
 """

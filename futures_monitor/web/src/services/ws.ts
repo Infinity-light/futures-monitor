@@ -16,9 +16,9 @@
 
 import { useMonitorStore, type ConnectionStatus, type SymbolRowData } from '../stores/monitor'
 
-export interface WsMessage {
-  type: 'row' | 'log' | 'connection' | 'running'
-  data: unknown
+export interface WsEnvelope<T = unknown> {
+  type: string
+  data: T
 }
 
 export class MonitorWebSocket {
@@ -40,7 +40,6 @@ export class MonitorWebSocket {
 
   connect(): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      console.log('[WebSocket] Already connected')
       return
     }
 
@@ -51,15 +50,13 @@ export class MonitorWebSocket {
       this.ws = new WebSocket(this.url)
 
       this.ws.onopen = () => {
-        console.log('[WebSocket] Connected')
         this.reconnectAttempts = 0
         this.reconnectDelay = 1000
-        this.store.setConnectionStatus('connected')
       }
 
       this.ws.onmessage = (event) => {
         try {
-          const message: WsMessage = JSON.parse(event.data)
+          const message: WsEnvelope = JSON.parse(event.data)
           this.handleMessage(message)
         } catch (error) {
           console.error('[WebSocket] Failed to parse message:', error)
@@ -67,20 +64,18 @@ export class MonitorWebSocket {
       }
 
       this.ws.onclose = () => {
-        console.log('[WebSocket] Closed')
         this.store.setConnectionStatus('disconnected')
         if (!this.isManualClose) {
           this.scheduleReconnect()
         }
       }
 
-      this.ws.onerror = (error) => {
-        console.error('[WebSocket] Error:', error)
-        this.store.setConnectionStatus('disconnected')
+      this.ws.onerror = () => {
+        this.store.setConnectionStatus('error')
       }
     } catch (error) {
       console.error('[WebSocket] Failed to connect:', error)
-      this.store.setConnectionStatus('disconnected')
+      this.store.setConnectionStatus('error')
       this.scheduleReconnect()
     }
   }
@@ -99,7 +94,6 @@ export class MonitorWebSocket {
 
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('[WebSocket] Max reconnect attempts reached')
       this.store.addLog({
         timestamp: new Date().toISOString(),
         level: 'ERROR',
@@ -109,20 +103,17 @@ export class MonitorWebSocket {
     }
 
     this.reconnectAttempts++
-    console.log(`[WebSocket] Reconnecting in ${this.reconnectDelay}ms (attempt ${this.reconnectAttempts})`)
-
     this.reconnectTimer = setTimeout(() => {
       this.connect()
     }, this.reconnectDelay)
 
-    // 指数退避
     this.reconnectDelay = Math.min(
       this.reconnectDelay * this.reconnectBackoffFactor,
       this.maxReconnectDelay
     )
   }
 
-  private handleMessage(message: WsMessage): void {
+  private handleMessage(message: WsEnvelope): void {
     switch (message.type) {
       case 'row':
         this.store.handleRowUpdate(message.data as SymbolRowData)
@@ -138,7 +129,9 @@ export class MonitorWebSocket {
         this.store.setConnectionStatus((message.data as { status: ConnectionStatus }).status)
         break
       case 'running':
-        this.store.setRunningStatus((message.data as { isRunning: boolean }).isRunning)
+        this.store.setRunningStatus((message.data as { running: boolean }).running)
+        break
+      case 'pong':
         break
       default:
         console.warn('[WebSocket] Unknown message type:', message.type)

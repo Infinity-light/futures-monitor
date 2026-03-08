@@ -14,12 +14,13 @@ depends:
 exports:
   - create_app
   - app
-status: IMPLEMENTED
+status: VERIFIED
 functions:
   - create_app() -> FastAPI
 ---
 """
 
+import asyncio
 import logging
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -28,8 +29,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api.config_api import router as config_router
 from .api.monitor_api import router as monitor_router
 from .schemas import HealthResponse
-from .ws.hub import get_hub
+from .static_host import configure_static_host
 from .services.monitor_service import get_monitor_service
+from .ws.hub import get_hub
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +44,12 @@ def create_app() -> FastAPI:
         description="Backend API for futures breakout monitoring system",
     )
 
-    # Add CORS middleware
     application.add_middleware(
         CORSMiddleware,
         allow_origins=[
-            "http://localhost:5173",  # Vite dev server
-            "http://localhost:3000",  # Common dev server
-            "http://localhost:8080",  # Another common dev server
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "http://localhost:8080",
             "http://127.0.0.1:5173",
             "http://127.0.0.1:3000",
             "http://127.0.0.1:8080",
@@ -63,47 +64,40 @@ def create_app() -> FastAPI:
         """Health check endpoint."""
         return HealthResponse()
 
-    # Include API routers
     application.include_router(config_router, prefix="/api")
     application.include_router(monitor_router, prefix="/api")
 
+    static_root = configure_static_host(application)
+    if static_root is not None:
+        logger.info("Serving frontend assets from %s", static_root)
+    else:
+        logger.info("Frontend build not found; serving placeholder root response")
+
     @application.websocket("/ws/events")
     async def websocket_endpoint(websocket: WebSocket) -> None:
-        """WebSocket endpoint for real-time events.
-
-        Clients can connect to this endpoint to receive:
-        - Log messages
-        - Symbol row updates
-        - Connection status changes
-        - Running status changes
-        """
+        """WebSocket endpoint for real-time events."""
         hub = get_hub()
         await websocket.accept()
         await hub.register(websocket)
 
         try:
-            # Send initial connection confirmation
             await websocket.send_json({
-                "type": "connected",
-                "message": "WebSocket connected successfully",
+                "type": "connection",
+                "data": {"status": "connected"},
             })
 
-            # Keep connection alive and handle client messages
             while True:
                 try:
-                    # Wait for messages from client (with timeout)
                     data = await websocket.receive_text()
-                    logger.debug(f"Received WebSocket message: {data}")
-
-                    # Echo back for ping/pong
+                    logger.debug("Received WebSocket message: %s", data)
                     await websocket.send_json({
                         "type": "pong",
-                        "received": data,
+                        "data": {"received": data},
                     })
                 except WebSocketDisconnect:
                     break
                 except Exception as exc:
-                    logger.warning(f"WebSocket error: {exc}")
+                    logger.warning("WebSocket error: %s", exc)
                     break
         finally:
             await hub.unregister(websocket)
@@ -112,28 +106,22 @@ def create_app() -> FastAPI:
     async def startup_event() -> None:
         """Application startup handler."""
         logger.info("Futures Monitor API starting up...")
-
-        # Initialize services
         monitor_service = get_monitor_service()
         hub = get_hub()
         monitor_service.set_hub(hub)
-
+        monitor_service.set_event_loop(asyncio.get_running_loop())
         logger.info("Futures Monitor API started successfully")
 
     @application.on_event("shutdown")
     async def shutdown_event() -> None:
         """Application shutdown handler."""
         logger.info("Futures Monitor API shutting down...")
-
-        # Stop monitoring if running
         monitor_service = get_monitor_service()
         if monitor_service._running:
             monitor_service.stop()
-
         logger.info("Futures Monitor API shutdown complete")
 
     return application
 
 
-# Global app instance for uvicorn
 app = create_app()

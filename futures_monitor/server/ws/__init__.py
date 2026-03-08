@@ -4,7 +4,7 @@ depends:
   - futures_monitor.server.ws.hub.ConnectionHub
 exports:
   - ConnectionHub
-status: PENDING
+status: VERIFIED
 functions:
   - none
 """

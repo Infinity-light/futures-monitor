@@ -1,0 +1,38 @@
+{
+  "project": {
+    "name": "futures-monitor",
+    "type": "fastapi",
+    "language": "python",
+    "port": 8000,
+    "buildCmd": "",
+    "startCmd": "python -X utf8 -m futures_monitor.server --host 0.0.0.0 --port 8000",
+    "projectStructure": "standard",
+    "subDirs": {}
+  },
+  "server": {
+    "host": "47.98.171.82",
+    "user": "root",
+    "sshKeyPath": "~/.ssh/id_rsa",
+    "deployDir": "/opt/apps"
+  },
+  "domain": {
+    "enabled": true,
+    "name": "kline.godpenai.com",
+    "https": true
+  },
+  "secrets": [],
+  "envVars": {},
+  "branches": {
+    "production": "master",
+    "staging": null
+  },
+  "database": {
+    "type": "sqlite",
+    "location": "none",
+    "dataDir": ".data",
+    "initCmd": "",
+    "migrateCmd": "",
+    "createAdmin": false,
+    "adminCmd": ""
+  }
+}

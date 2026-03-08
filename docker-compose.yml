@@ -1,0 +1,30 @@
+services:
+  futures-monitor:
+    build: .
+    container_name: futures-monitor
+    restart: unless-stopped
+
+
+    ports:
+      - "8000:8000"
+
+    env_file:
+      - path: .env
+        required: false
+
+    volumes:
+      - futures-monitor-data:/app/.data
+
+
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+
+
+volumes:
+  futures-monitor-data:
+

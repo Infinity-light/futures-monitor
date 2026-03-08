@@ -1,0 +1,34 @@
+{
+  "A-上下型": {
+    "name": "vertical",
+    "description": "主视觉在上，信息在下。最通用布局。",
+    "safeZone": "底部30%",
+    "textPosition": "bottom: 0, height: 30%",
+    "promptHint": "底部三分之一区域为深色自然过渡，不生成任何文字",
+    "useCases": ["会议", "讲座", "训练营", "通用活动"]
+  },
+  "B-左右型": {
+    "name": "horizontal",
+    "description": "主视觉在左，信息在右。适合信息较多的场景。",
+    "safeZone": "右侧40%",
+    "textPosition": "right: 0, width: 40%",
+    "promptHint": "右侧区域为纯色背景，不生成任何装饰",
+    "useCases": ["展览", "市集", "多嘉宾活动"]
+  },
+  "C-中心型": {
+    "name": "center",
+    "description": "主视觉居中，信息环绕。适合强视觉冲击。",
+    "safeZone": "四周环绕",
+    "textPosition": "上下分布",
+    "promptHint": "主视觉周围留白，不生成干扰元素",
+    "useCases": ["演出", "品牌发布", "艺术活动"]
+  },
+  "D-全屏型": {
+    "name": "fullscreen",
+    "description": "全屏视觉，信息置顶。适合倒计时、预告。",
+    "safeZone": "顶部20%",
+    "textPosition": "top: 0, height: 20%",
+    "promptHint": "顶部区域简洁，底部全屏视觉",
+    "useCases": ["概念海报", "倒计时", "预告片"]
+  }
+}

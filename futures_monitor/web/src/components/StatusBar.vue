@@ -50,6 +50,8 @@ const connectionStatusType = computed(() => {
       return 'warning'
     case 'disconnected':
       return 'danger'
+    case 'error':
+      return 'danger'
     default:
       return 'info'
   }
@@ -63,6 +65,8 @@ const connectionStatusText = computed(() => {
       return '连接中'
     case 'disconnected':
       return '已断开'
+    case 'error':
+      return '连接失败'
     default:
       return '未知'
   }

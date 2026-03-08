@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(cd D:\\\\TechWork\\\\自由发散地\\\\waoowaoo:*)",
+      "Bash(cd:*)",
+      "Bash(python:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(claude plugin:*)"
+    ]
+  },
+  "enabledPlugins": {}
+}

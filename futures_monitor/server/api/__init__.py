@@ -6,7 +6,7 @@ depends:
 exports:
   - config_router
   - monitor_router
-status: PENDING
+status: VERIFIED
 functions:
   - none
 """

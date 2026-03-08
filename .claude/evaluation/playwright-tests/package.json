@@ -1,0 +1,15 @@
+{
+  "name": "playwright-evaluation",
+  "version": "1.0.0",
+  "description": "Playwright CLI 标准化测评",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "report": "playwright show-report ../playwright-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@types/node": "^20.0.0"
+  }
+}

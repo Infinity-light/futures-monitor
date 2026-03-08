@@ -25,7 +25,7 @@ functions:
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..schemas import MarkBoughtRequest, MonitorControlRequest, MonitorStatus
-from ..services.monitor_service import get_monitor_service, MonitorService
+from ..services.monitor_service import MonitorService, get_monitor_service
 
 router = APIRouter(tags=["monitor"])
 
@@ -51,12 +51,7 @@ def control_monitor(
     payload: MonitorControlRequest,
     service: MonitorService = Depends(get_monitor_service_dependency),
 ) -> MonitorStatus:
-    """Control the monitor - start or stop monitoring.
-
-    Args:
-        payload: Control request with action ("start" or "stop") and optional symbols list.
-                Use symbols=["ALL"] or symbols=["全部"] to monitor all domestic futures.
-    """
+    """Control the monitor - start or stop monitoring."""
     try:
         if payload.action == "start":
             result = service.start(payload.symbols)
@@ -81,11 +76,7 @@ def mark_bought(
     payload: MarkBoughtRequest,
     service: MonitorService = Depends(get_monitor_service_dependency),
 ) -> dict:
-    """Mark a symbol as bought.
-
-    Args:
-        payload: Request with symbol to mark as bought.
-    """
+    """Mark a symbol as bought."""
     try:
         result = service.mark_bought(payload.symbol)
         if not result.get("success"):

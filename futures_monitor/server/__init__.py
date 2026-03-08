@@ -5,7 +5,7 @@ depends:
 exports:
   - create_app
   - app
-status: PENDING
+status: VERIFIED
 functions:
   - create_app() -> FastAPI
 """

@@ -1,0 +1,42 @@
+{
+  "科技": {
+    "name": "tech",
+    "background": "深蓝到黑色渐变",
+    "primary": "#00d4ff",
+    "secondary": "#00ff88",
+    "gradient": "linear-gradient(to top, rgba(10,10,20,0.95) 0%, transparent 100%)",
+    "description": "适用于AI、编程、互联网等科技类活动"
+  },
+  "金融": {
+    "name": "finance",
+    "background": "深灰到黑色渐变",
+    "primary": "#ffd700",
+    "secondary": "#c0c0c0",
+    "gradient": "linear-gradient(to top, rgba(20,20,20,0.95) 0%, transparent 100%)",
+    "description": "适用于金融、投资、商业类活动"
+  },
+  "文艺": {
+    "name": "art",
+    "background": "暖白到米黄",
+    "primary": "#8b4513",
+    "secondary": "#d2691e",
+    "gradient": "linear-gradient(to top, rgba(245,245,240,0.95) 0%, transparent 100%)",
+    "description": "适用于展览、演出、文化类活动"
+  },
+  "教育": {
+    "name": "education",
+    "background": "浅灰到白色",
+    "primary": "#ff6b35",
+    "secondary": "#004e89",
+    "gradient": "linear-gradient(to top, rgba(240,240,245,0.95) 0%, transparent 100%)",
+    "description": "适用于培训、讲座、学术类活动"
+  },
+  "极简": {
+    "name": "minimal",
+    "background": "纯黑",
+    "primary": "#ffffff",
+    "secondary": "#888888",
+    "gradient": "linear-gradient(to top, rgba(0,0,0,0.9) 0%, transparent 100%)",
+    "description": "适用于高端品牌发布、概念活动"
+  }
+}

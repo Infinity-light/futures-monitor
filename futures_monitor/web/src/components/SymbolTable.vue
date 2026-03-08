@@ -25,7 +25,7 @@ functions:
       height="100%"
       v-loading="store.connectionStatus === 'connecting'"
     >
-      <el-table-column prop="symbol" label="品种代码" width="100" fixed />
+      <el-table-column prop="symbol" label="品种代码" width="120" fixed />
 
       <el-table-column prop="status" label="状态" width="120">
         <template #default="{ row }">
@@ -61,7 +61,7 @@ functions:
 
       <el-table-column prop="takeProfit" label="止盈价" width="100">
         <template #default="{ row }">
-          <span :class="{ 'profit-text': row.takeProfit }">
+          <span :class="{ 'profit-text': row.takeProfit !== null }">
             {{ formatPrice(row.takeProfit) }}
           </span>
         </template>
@@ -69,19 +69,19 @@ functions:
 
       <el-table-column prop="stopLoss" label="止损价" width="100">
         <template #default="{ row }">
-          <span :class="{ 'loss-text': row.stopLoss }">
+          <span :class="{ 'loss-text': row.stopLoss !== null }">
             {{ formatPrice(row.stopLoss) }}
           </span>
         </template>
       </el-table-column>
 
-      <el-table-column prop="lastEvent" label="最后事件" min-width="150" show-overflow-tooltip>
+      <el-table-column prop="lastEvent" label="最后事件" min-width="180" show-overflow-tooltip>
         <template #default="{ row }">
           {{ row.lastEvent || '-' }}
         </template>
       </el-table-column>
 
-      <el-table-column label="操作" width="100" fixed="right">
+      <el-table-column label="操作" width="120" fixed="right">
         <template #default="{ row }">
           <el-button
             v-if="row.status === 'BREAKOUT_DETECTED'"
@@ -109,7 +109,7 @@ function getStatusType(status: SymbolStatus): string {
   const typeMap: Record<SymbolStatus, string> = {
     MONITORING: 'info',
     BREAKOUT_DETECTED: 'danger',
-    BOUGHT: 'success',
+    HOLDING: 'success',
     STOPPED: 'warning'
   }
   return typeMap[status] || 'info'
@@ -119,7 +119,7 @@ function getStatusText(status: SymbolStatus): string {
   const textMap: Record<SymbolStatus, string> = {
     MONITORING: '监控中',
     BREAKOUT_DETECTED: '突破检测',
-    BOUGHT: '已买入',
+    HOLDING: '已持仓',
     STOPPED: '已停止'
   }
   return textMap[status] || status

@@ -49,7 +49,7 @@ functions:
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { useMonitorStore } from '../stores/monitor'
 
 const store = useMonitorStore()
@@ -74,10 +74,9 @@ function getLevelType(level: string): string {
 }
 
 function clearLogs() {
-  store.logs = []
+  store.clearLogs()
 }
 
-// 自动滚动到最新日志
 watch(
   () => store.logs.length,
   () => {
@@ -172,7 +171,6 @@ watch(
   padding: 20px;
 }
 
-/* 自定义滚动条 */
 .log-container::-webkit-scrollbar {
   width: 6px;
 }

@@ -33,7 +33,6 @@ functions:
 from __future__ import annotations
 
 import asyncio
-import queue
 import threading
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -60,6 +59,13 @@ if TYPE_CHECKING:
 
 
 _ALL_SYMBOL_ALIASES = {"ALL", "全部"}
+_CONNECTION_STATUS_MAP = {
+    "未连接": "disconnected",
+    "已断开": "disconnected",
+    "连接中": "connecting",
+    "已连接": "connected",
+    "连接失败": "error",
+}
 
 
 def _is_all_symbols_request(symbols: list[str]) -> bool:
@@ -136,16 +142,13 @@ class MonitorService:
         self.runtime_map: dict[str, dict] = {}
 
         self.symbols: list[str] = self.config.symbols or ["SHFE.rb2410"]
-        self._event_queue: queue.Queue[dict] = queue.Queue()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
         self._hub: ConnectionHub | None = None
         self._running = False
-        self._connection_status = "未连接"
-
-        # Start the event processing task
-        self._event_loop: asyncio.AbstractEventLoop | None = None
+        self._connection_status = "disconnected"
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def _load_config(self, config_path: str) -> AppConfig:
         """Load configuration from file."""
@@ -158,26 +161,33 @@ class MonitorService:
         """Set the WebSocket hub for broadcasting events."""
         self._hub = hub
 
-    def _emit_event(self, event: dict) -> None:
-        """Emit an event to the queue and broadcast via WebSocket."""
-        self._event_queue.put(event)
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Store the application event loop for cross-thread broadcasts."""
+        self._loop = loop
 
-        # Also broadcast immediately if hub is available
-        if self._hub is not None:
-            try:
-                # Use asyncio.run_coroutine_threadsafe if we're in a different thread
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(self._hub.broadcast(event))
-                else:
-                    loop.run_until_complete(self._hub.broadcast(event))
-            except Exception as exc:
-                self.logger.debug(f"Failed to broadcast event: {exc}")
+    def _schedule_broadcast(self, event: dict) -> None:
+        if self._hub is None or self._loop is None:
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(self._hub.broadcast(event), self._loop)
+        except Exception as exc:
+            self.logger.debug("Failed to broadcast event: %s", exc)
 
-    def _emit_log(self, message: str) -> None:
+    def _emit_event(self, event_type: str, data: dict) -> None:
+        event = {"type": event_type, "data": data}
+        self._schedule_broadcast(event)
+
+    def _emit_log(self, message: str, level: str = "INFO") -> None:
         """Emit a log event."""
-        self.logger.info(message)
-        self._emit_event({"type": "log", "message": message})
+        getattr(self.logger, level.lower(), self.logger.info)(message)
+        self._emit_event(
+            "log",
+            {
+                "timestamp": datetime.now().isoformat(),
+                "level": level,
+                "message": message,
+            },
+        )
 
     def _emit_row(self, symbol: str) -> None:
         """Emit a row update event."""
@@ -185,28 +195,32 @@ class MonitorService:
         runtime = self.runtime_map.setdefault(symbol, _build_runtime_state())
         latest = self.provider.get_latest_snapshot([symbol]).get(symbol)
 
-        self._emit_event({
-            "type": "row",
-            "symbol": symbol,
-            "state": machine.get_state(),
-            "latest_price": None if latest is None else latest.close,
-            "day_high": runtime.get("day_high"),
-            "day_low": runtime.get("day_low"),
-            "breakout_price": runtime.get("breakout_price"),
-            "take_profit_price": runtime.get("take_profit_price"),
-            "stop_loss_price": runtime.get("stop_loss_price"),
-            "last_event": runtime.get("last_event", "-"),
-        })
+        self._emit_event(
+            "row",
+            {
+                "symbol": symbol,
+                "status": machine.get_state(),
+                "last_price": None if latest is None else latest.close,
+                "day_high": runtime.get("day_high"),
+                "day_low": runtime.get("day_low"),
+                "breakout_price": runtime.get("breakout_price"),
+                "take_profit": runtime.get("take_profit_price"),
+                "stop_loss": runtime.get("stop_loss_price"),
+                "last_event": runtime.get("last_event", "-"),
+                "has_bought": machine.get_state() == HOLDING,
+            },
+        )
 
     def _emit_connection(self, status: str) -> None:
         """Emit connection status event."""
-        self._connection_status = status
-        self._emit_event({"type": "connection", "status": status})
+        normalized = _CONNECTION_STATUS_MAP.get(status, status)
+        self._connection_status = normalized
+        self._emit_event("connection", {"status": normalized})
 
     def _emit_running(self, running: bool) -> None:
         """Emit running status event."""
         self._running = running
-        self._emit_event({"type": "running", "running": running})
+        self._emit_event("running", {"running": running})
 
     def _prepare_symbol_context(self, symbols: list[str]) -> None:
         """Prepare strategy and state machine context for symbols."""
@@ -217,14 +231,7 @@ class MonitorService:
             self._emit_row(symbol)
 
     def start(self, symbols: list[str]) -> dict:
-        """Start monitoring the specified symbols.
-
-        Args:
-            symbols: List of symbols to monitor. Use ["ALL"] or ["全部"] for all domestic futures.
-
-        Returns:
-            dict with success status and message.
-        """
+        """Start monitoring the specified symbols."""
         if self._thread and self._thread.is_alive():
             return {"success": False, "message": "监控已在运行中。"}
 
@@ -248,11 +255,7 @@ class MonitorService:
         return {"success": True, "message": msg, "symbols": self.symbols}
 
     def stop(self) -> dict:
-        """Stop monitoring.
-
-        Returns:
-            dict with success status and message.
-        """
+        """Stop monitoring."""
         self._stop_event.set()
         self._emit_running(False)
         self._emit_connection("已断开")
@@ -260,14 +263,7 @@ class MonitorService:
         return {"success": True, "message": "监控停止指令已发送"}
 
     def mark_bought(self, symbol: str) -> dict:
-        """Mark a symbol as bought.
-
-        Args:
-            symbol: The symbol to mark as bought.
-
-        Returns:
-            dict with success status and message.
-        """
+        """Mark a symbol as bought."""
         machine = self.machine_map.setdefault(symbol, StrategyStateMachine())
         runtime = self.runtime_map.setdefault(symbol, _build_runtime_state())
 
@@ -275,7 +271,7 @@ class MonitorService:
             machine.mark_bought(datetime.now().isoformat())
         except ValueError as exc:
             runtime["last_event"] = "当前状态不可标记已买入"
-            self._emit_log(f"{symbol} 标记已买入失败：当前状态={machine.get_state()}")
+            self._emit_log(f"{symbol} 标记已买入失败：当前状态={machine.get_state()}", level="WARNING")
             self._emit_row(symbol)
             return {"success": False, "message": str(exc)}
 
@@ -287,11 +283,7 @@ class MonitorService:
         return {"success": True, "message": f"{symbol} 已标记为已买入"}
 
     def get_status(self) -> "MonitorStatus":
-        """Get current monitor status.
-
-        Returns:
-            MonitorStatus with running state, connection status, and symbol rows.
-        """
+        """Get current monitor status."""
         from futures_monitor.server.schemas import MonitorStatus, SymbolRow
 
         rows: list[SymbolRow] = []
@@ -300,17 +292,20 @@ class MonitorService:
             runtime = self.runtime_map.get(symbol)
             if machine and runtime:
                 latest = self.provider.get_latest_snapshot([symbol]).get(symbol)
-                rows.append(SymbolRow(
-                    symbol=symbol,
-                    state=machine.get_state(),
-                    latest_price=None if latest is None else latest.close,
-                    day_high=runtime.get("day_high"),
-                    day_low=runtime.get("day_low"),
-                    breakout_price=runtime.get("breakout_price"),
-                    take_profit_price=runtime.get("take_profit_price"),
-                    stop_loss_price=runtime.get("stop_loss_price"),
-                    last_event=runtime.get("last_event", "-"),
-                ))
+                rows.append(
+                    SymbolRow(
+                        symbol=symbol,
+                        status=machine.get_state(),
+                        last_price=None if latest is None else latest.close,
+                        day_high=runtime.get("day_high"),
+                        day_low=runtime.get("day_low"),
+                        breakout_price=runtime.get("breakout_price"),
+                        take_profit=runtime.get("take_profit_price"),
+                        stop_loss=runtime.get("stop_loss_price"),
+                        last_event=runtime.get("last_event", "-"),
+                        has_bought=machine.get_state() == HOLDING,
+                    )
+                )
 
         return MonitorStatus(
             running=self._running,
@@ -358,7 +353,7 @@ class MonitorService:
         self.logger.warning(msg)
         self.storage.save_alert(symbol=symbol, message=msg, level="WARNING")
         self.storage.save_symbol_state(symbol=symbol, state=BREAKOUT_DETECTED)
-        self._emit_log(msg.replace("\n", " | "))
+        self._emit_log(msg.replace("\n", " | "), level="WARNING")
         self.sms.send(phone_number="", message=msg)
 
     def _handle_breakout_state(self, symbol: str, current_dt: datetime) -> None:
@@ -370,7 +365,7 @@ class MonitorService:
             runtime["reminded_1445"] = True
             runtime["last_event"] = remind
             self.storage.save_alert(symbol=symbol, message=remind, level="WARNING")
-            self._emit_log(remind)
+            self._emit_log(remind, level="WARNING")
 
     def _handle_holding_state(self, symbol: str, kline: Kline, current_dt: datetime) -> None:
         """Handle HOLDING state logic."""
@@ -383,21 +378,21 @@ class MonitorService:
             runtime["tp_sent"] = True
             runtime["last_event"] = msg
             self.storage.save_alert(symbol=symbol, message=msg, level="WARNING")
-            self._emit_log(msg)
+            self._emit_log(msg, level="WARNING")
 
         if sl is not None and (not runtime["sl_sent"]) and kline.close <= float(sl):
             msg = f"{symbol} 止损提醒，当前价={kline.close:.2f}，止损价={float(sl):.2f}"
             runtime["sl_sent"] = True
             runtime["last_event"] = msg
             self.storage.save_alert(symbol=symbol, message=msg, level="WARNING")
-            self._emit_log(msg)
+            self._emit_log(msg, level="WARNING")
 
         if not runtime["reminded_1455"] and is_after_1455(current_dt):
             msg = f"{symbol} 14:55 持仓提醒（强制平仓提醒，仅提醒）"
             runtime["reminded_1455"] = True
             runtime["last_event"] = msg
             self.storage.save_alert(symbol=symbol, message=msg, level="WARNING")
-            self._emit_log(msg)
+            self._emit_log(msg, level="WARNING")
 
     def _process_tick(self, symbol: str, kline: Kline) -> None:
         """Process a single tick for a symbol."""
@@ -438,7 +433,7 @@ class MonitorService:
                 self._process_tick(symbol, kline)
         except Exception as exc:
             self._emit_connection("连接失败")
-            self._emit_log(f"行情线程异常退出: {exc}")
+            self._emit_log(f"行情线程异常退出: {exc}", level="ERROR")
             self.logger.exception("monitor loop failed")
         finally:
             self._emit_running(False)
@@ -446,7 +441,6 @@ class MonitorService:
                 self._emit_log("监控已停止。")
 
 
-# Global singleton instance
 _monitor_service_instance: MonitorService | None = None
 
 

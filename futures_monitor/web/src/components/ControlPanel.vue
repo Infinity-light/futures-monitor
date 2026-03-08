@@ -65,19 +65,28 @@ functions:
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { VideoPlay, VideoPause } from '@element-plus/icons-vue'
+import { computed, ref } from 'vue'
+import { VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useMonitorStore } from '../stores/monitor'
 
 const store = useMonitorStore()
 
-const symbolInput = ref('')
 const isStarting = ref(false)
 const isStopping = ref(false)
 
+const symbolInput = computed({
+  get: () => store.symbolInput,
+  set: (value: string) => {
+    store.symbolInput = value
+  }
+})
+
 const parsedSymbols = computed(() => {
   const input = symbolInput.value.trim()
+  if (!input) {
+    return []
+  }
   if (input.toUpperCase() === 'ALL') {
     return ['ALL']
   }
@@ -87,13 +96,9 @@ const parsedSymbols = computed(() => {
     .filter(s => s.length > 0)
 })
 
-const parsedSymbolCount = computed(() => {
-  return parsedSymbols.value.length
-})
+const parsedSymbolCount = computed(() => parsedSymbols.value.length)
 
-const canStart = computed(() => {
-  return parsedSymbolCount.value > 0 && !store.isRunning
-})
+const canStart = computed(() => parsedSymbolCount.value > 0 && !store.isRunning)
 
 async function handleStart() {
   if (parsedSymbols.value.length === 0) {
@@ -105,7 +110,7 @@ async function handleStart() {
   try {
     await store.startMonitor(parsedSymbols.value)
     ElMessage.success('监控已启动')
-  } catch (error) {
+  } catch {
     ElMessage.error('启动监控失败')
   } finally {
     isStarting.value = false
@@ -117,7 +122,7 @@ async function handleStop() {
   try {
     await store.stopMonitor()
     ElMessage.success('监控已停止')
-  } catch (error) {
+  } catch {
     ElMessage.error('停止监控失败')
   } finally {
     isStopping.value = false

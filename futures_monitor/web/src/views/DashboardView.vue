@@ -43,18 +43,25 @@ import { createMonitorSocket } from '../services/ws'
 const store = useMonitorStore()
 let wsClient: ReturnType<typeof createMonitorSocket> | null = null
 
-onMounted(() => {
-  // 初始化 store
-  store.initialize()
+function resolveWsUrl(): string {
+  const configured = import.meta.env.VITE_WS_URL
+  if (configured) {
+    return configured
+  }
 
-  // 连接 WebSocket
-  const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws'
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}/ws/events`
+}
+
+onMounted(async () => {
+  await store.initialize()
+
+  const wsUrl = resolveWsUrl()
   wsClient = createMonitorSocket(wsUrl, store)
   wsClient.connect()
 })
 
 onUnmounted(() => {
-  // 断开 WebSocket
   if (wsClient) {
     wsClient.disconnect()
     wsClient = null
@@ -64,7 +71,7 @@ onUnmounted(() => {
 
 <style scoped>
 .dashboard-view {
-  height: calc(100vh - 60px); /* 减去 StatusBar 高度 */
+  height: calc(100vh - 60px);
   background-color: #f5f7fa;
 }
 
@@ -90,7 +97,6 @@ onUnmounted(() => {
   background-color: transparent;
 }
 
-/* 响应式设计 */
 @media (max-width: 768px) {
   .dashboard-view {
     flex-direction: column;
