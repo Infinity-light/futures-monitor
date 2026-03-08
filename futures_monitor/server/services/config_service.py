@@ -6,6 +6,7 @@ depends:
   - futures_monitor.config.load_config
   - futures_monitor.config.save_config
   - futures_monitor.server.schemas.ConfigDTO
+  - futures_monitor.server.services.monitor_service.MonitorService
 exports:
   - ConfigService
 status: IMPLEMENTED
@@ -14,6 +15,7 @@ functions:
   - ConfigService.update_config(payload: ConfigDTO) -> ConfigDTO
   - ConfigService.to_dto(config: AppConfig) -> ConfigDTO
   - ConfigService.from_dto(dto: ConfigDTO) -> AppConfig
+  - ConfigService.set_monitor_service(monitor_service: MonitorService | None) -> None
 ---
 """
 
@@ -26,6 +28,7 @@ from futures_monitor.config import AppConfig, load_config, save_config
 
 if TYPE_CHECKING:
     from futures_monitor.server.schemas import ConfigDTO
+    from futures_monitor.server.services.monitor_service import MonitorService
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +39,11 @@ class ConfigService:
 
     def __init__(self, config_path: str = "futures_monitor/config.json") -> None:
         self._config_path = config_path
+        self._monitor_service: MonitorService | None = None
+
+    def set_monitor_service(self, monitor_service: MonitorService | None) -> None:
+        """Attach the monitor service so config saves can refresh runtime state."""
+        self._monitor_service = monitor_service
 
     @staticmethod
     def to_dto(config: AppConfig) -> "ConfigDTO":
@@ -94,7 +102,7 @@ class ConfigService:
             return self.to_dto(AppConfig())
 
     def update_config(self, payload: "ConfigDTO") -> "ConfigDTO":
-        """Save configuration to file.
+        """Save configuration to file and refresh runtime consumers.
 
         Args:
             payload: New configuration values.
@@ -109,11 +117,13 @@ class ConfigService:
             config = self.from_dto(payload)
             save_config(config, self._config_path)
 
-            # Log without password
+            if self._monitor_service is not None:
+                self._monitor_service.reload_config(config)
+
             log_payload = payload.model_dump_masked()
             logger.info(f"Configuration saved to {self._config_path}: {log_payload}")
 
-            return payload
+            return self.to_dto(config)
         except Exception as exc:
             logger.error(f"Failed to save config: {exc}")
             raise

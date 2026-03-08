@@ -40,9 +40,18 @@ class TestServerSchemas(unittest.TestCase):
         self.assertEqual(payload.stop_loss, 3490.0)
 
     def test_config_dto_instantiation(self) -> None:
-        payload = ConfigDTO(poll_interval=10, symbols=["SHFE.rb2405", "DCE.i2405"])
-        self.assertEqual(payload.poll_interval, 10)
+        payload = ConfigDTO(
+            symbols=["SHFE.rb2405", "DCE.i2405"],
+            tq_account="demo-account",
+            tq_password="demo-pass",
+            use_real_market_data=True,
+            strict_real_mode=False,
+        )
         self.assertEqual(payload.symbols, ["SHFE.rb2405", "DCE.i2405"])
+        self.assertEqual(payload.tq_account, "demo-account")
+        self.assertEqual(payload.tq_password, "demo-pass")
+        self.assertTrue(payload.use_real_market_data)
+        self.assertFalse(payload.strict_real_mode)
 
 
 if __name__ == "__main__":

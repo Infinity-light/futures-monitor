@@ -27,6 +27,7 @@ functions:
   - MonitorService.get_status() -> MonitorStatus
   - MonitorService.mark_bought(symbol: str) -> dict
   - MonitorService.set_hub(hub: ConnectionHub) -> None
+  - MonitorService.reload_config(config: AppConfig | None = None) -> AppConfig
 ---
 """
 
@@ -130,6 +131,7 @@ class MonitorService:
 
     def __init__(self, config_path: str = "futures_monitor/config.json") -> None:
         self.logger = get_logger("futures_monitor.monitor_service")
+        self._config_path = config_path
         self.config = self._load_config(config_path)
 
         self.storage = Storage(db_path=f"{self.config.data_dir}/monitor.db")
@@ -164,6 +166,18 @@ class MonitorService:
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Store the application event loop for cross-thread broadcasts."""
         self._loop = loop
+
+    def reload_config(self, config: AppConfig | None = None) -> AppConfig:
+        """Reload runtime configuration and rebuild dependent providers."""
+        next_config = config or self._load_config(self._config_path)
+        self.config = next_config
+        self.storage = Storage(db_path=f"{self.config.data_dir}/monitor.db")
+        self.desktop = DesktopAlertSender(alert_sound=self.config.alert_sound)
+        self.sms = SmsAlertSender(enabled=self.config.enable_sms)
+        self.provider = MarketDataProvider(config=self.config, logger=self.logger)
+        if not self._running:
+            self.symbols = self.config.symbols or ["SHFE.rb2410"]
+        return self.config
 
     def _schedule_broadcast(self, event: dict) -> None:
         if self._hub is None or self._loop is None:
@@ -235,6 +249,7 @@ class MonitorService:
         if self._thread and self._thread.is_alive():
             return {"success": False, "message": "监控已在运行中。"}
 
+        self.reload_config()
         selected = symbols or self.config.symbols or ["SHFE.rb2410"]
         self.symbols = selected
         is_all_request = _is_all_symbols_request(self.symbols)

@@ -30,6 +30,7 @@ from .api.config_api import router as config_router
 from .api.monitor_api import router as monitor_router
 from .schemas import HealthResponse
 from .static_host import configure_static_host
+from .services.config_service import get_config_service
 from .services.monitor_service import get_monitor_service
 from .ws.hub import get_hub
 
@@ -107,6 +108,8 @@ def create_app() -> FastAPI:
         """Application startup handler."""
         logger.info("Futures Monitor API starting up...")
         monitor_service = get_monitor_service()
+        config_service = get_config_service()
+        config_service.set_monitor_service(monitor_service)
         hub = get_hub()
         monitor_service.set_hub(hub)
         monitor_service.set_event_loop(asyncio.get_running_loop())

@@ -88,7 +88,6 @@ class ConfigDTO(BaseModel):
     ui_refresh_ms: int = 800
     tq_account: str = ""
     tq_password: str = ""
-    poll_interval: int = 5
 
     def model_dump_masked(self) -> dict:
         """Return dict with password masked."""

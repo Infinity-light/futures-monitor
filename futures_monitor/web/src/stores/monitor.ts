@@ -21,7 +21,9 @@ import {
   getConfig,
   getMonitorStatus,
   markBought as markBoughtApi,
+  updateConfig,
   type ConfigResponse,
+  type ConfigUpdate,
   type MonitorStatus
 } from '../services/api'
 
@@ -210,9 +212,25 @@ export const useMonitorStore = defineStore('monitor', {
       this.logs = []
 
       const [config, status] = await Promise.all([getConfig(), getMonitorStatus()])
+      this.setConfig(config)
+      this.applyStatusSnapshot(status)
+    },
+
+    setConfig(config: ConfigResponse): void {
       this.config = config
       this.symbolInput = config.symbols.join('\n')
-      this.applyStatusSnapshot(status)
+    },
+
+    async refreshConfig(): Promise<ConfigResponse> {
+      const config = await getConfig()
+      this.setConfig(config)
+      return config
+    },
+
+    async saveConfig(payload: ConfigUpdate): Promise<ConfigResponse> {
+      const saved = await updateConfig(payload)
+      this.setConfig(saved)
+      return await this.refreshConfig()
     },
 
     applyStatusSnapshot(status: MonitorStatus): void {

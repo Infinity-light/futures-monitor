@@ -39,10 +39,23 @@ export interface ConfigResponse {
   ui_refresh_ms: number
   tq_account: string
   tq_password: string
-  poll_interval: number
 }
 
-export interface ConfigUpdate extends Partial<ConfigResponse> {}
+export interface ConfigUpdate {
+  symbols?: string[]
+  take_profit_pct?: number
+  stop_loss_pct?: number
+  position_pct?: number
+  enable_sms?: boolean
+  alert_sound?: boolean
+  data_dir?: string
+  timezone?: string
+  use_real_market_data?: boolean
+  strict_real_mode?: boolean
+  ui_refresh_ms?: number
+  tq_account?: string
+  tq_password?: string
+}
 
 export interface SymbolRow {
   symbol: string
