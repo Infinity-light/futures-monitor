@@ -208,6 +208,41 @@ class TestConfig(unittest.TestCase):
         actual = {item['value']: item['name'] for item in SYMBOL_CANDIDATE_DEFINITIONS}
         self.assertEqual({key: actual.get(key) for key in expected_names}, expected_names)
 
+    def test_symbol_candidate_definitions_cover_latest_cn_name_backfill_batch(self) -> None:
+        from futures_monitor.config import SYMBOL_CANDIDATE_DEFINITIONS
+
+        expected_names = {
+            'SHFE.sp': '纸浆',
+            'SHFE.ru': '橡胶',
+            'SHFE.sn': '沪锡',
+            'SHFE.bc': '国际铜',
+            'SHFE.ad': '铸造铝合金',
+            'SHFE.op': '胶版印刷纸',
+            'DCE.l': '聚乙烯',
+            'DCE.p': '棕榈油',
+            'DCE.jd': '鸡蛋',
+            'DCE.j': '焦炭',
+            'DCE.jm': '焦煤',
+            'DCE.lh': '生猪',
+            'DCE.bz': '纯苯',
+            'DCE.pg': '液化石油气',
+            'CZCE.AP': '苹果',
+            'CZCE.PF': '短纤',
+            'CZCE.PX': '对二甲苯',
+            'CZCE.OI': '菜油',
+            'CZCE.PR': '瓶片',
+            'CZCE.SH': '烧碱',
+            'CZCE.CY': '棉纱',
+            'CFFEX.TS': '2年期国债',
+            'CFFEX.TF': '5年期国债',
+            'CFFEX.TL': '30年期国债',
+            'GFEX.ps': '多晶硅',
+            'GFEX.pt': '铂',
+            'GFEX.pd': '钯',
+        }
+        actual = {item['value']: item['name'] for item in SYMBOL_CANDIDATE_DEFINITIONS}
+        self.assertEqual({key: actual.get(key) for key in expected_names}, expected_names)
+
     def test_invalid_pct_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "cfg.json"
