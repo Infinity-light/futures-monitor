@@ -218,13 +218,17 @@ class TestConfig(unittest.TestCase):
     def test_fixed_monitor_pool_uses_candidate_definitions_for_all_and_exchange_modes(self) -> None:
         all_pool = get_fixed_monitor_pool('all')
         dce_pool = get_fixed_monitor_pool('exchange', ['DCE'])
+        ine_pool = get_fixed_monitor_pool('exchange', ['INE'])
 
         self.assertLessEqual(len(all_pool), 100)
         self.assertIn('SHFE.rb', all_pool)
         self.assertIn('DCE.i', all_pool)
+        self.assertIn('INE.bc', all_pool)
+        self.assertNotIn('SHFE.bc', all_pool)
         self.assertTrue(all(symbol.startswith('DCE.') for symbol in dce_pool))
         self.assertIn('DCE.i', dce_pool)
         self.assertNotIn('SHFE.rb', dce_pool)
+        self.assertIn('INE.bc', ine_pool)
 
     def test_symbol_candidate_definitions_cover_latest_cn_name_backfill_batch(self) -> None:
         from futures_monitor.config import SYMBOL_CANDIDATE_DEFINITIONS
@@ -233,9 +237,8 @@ class TestConfig(unittest.TestCase):
             'SHFE.sp': '纸浆',
             'SHFE.ru': '橡胶',
             'SHFE.sn': '沪锡',
-            'SHFE.bc': '国际铜',
+            'INE.bc': '国际铜',
             'SHFE.ad': '铸造铝合金',
-            'SHFE.op': '胶版印刷纸',
             'DCE.l': '聚乙烯',
             'DCE.p': '棕榈油',
             'DCE.jd': '鸡蛋',

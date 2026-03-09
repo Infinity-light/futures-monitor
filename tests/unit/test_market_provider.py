@@ -166,6 +166,8 @@ class TestMarketDataProvider(unittest.TestCase):
         expected_pool = get_fixed_monitor_pool('all')
         expected_requests = [f'KQ.m@{symbol}' if '.' in symbol and not any(char.isdigit() for char in symbol.rsplit('.', 1)[1]) else symbol for symbol in expected_pool]
         self.assertEqual(api.requested, expected_requests)
+        self.assertIn('KQ.m@INE.bc', api.requested)
+        self.assertNotIn('KQ.m@SHFE.bc', api.requested)
         self.assertEqual(resolved[0], f'{expected_pool[0]}2409')
         self.assertEqual(len(resolved), len(expected_pool))
 
@@ -181,10 +183,10 @@ class TestMarketDataProvider(unittest.TestCase):
                 self.requested.append(symbol)
                 if symbol.startswith('KQ.m@'):
                     base_symbol = symbol.removeprefix('KQ.m@')
-                    suffix = base_symbol.split('.', 1)[1]
-                    return SimpleNamespace(underlying_symbol=f'SHFE.{suffix}2409')
-                suffix = symbol.split('.', 1)[1]
-                return SimpleNamespace(underlying_symbol=f'SHFE.{suffix}2409')
+                    exchange, suffix = base_symbol.split('.', 1)
+                    return SimpleNamespace(underlying_symbol=f'{exchange}.{suffix}2409')
+                exchange, suffix = symbol.split('.', 1)
+                return SimpleNamespace(underlying_symbol=f'{exchange}.{suffix}2409')
 
         api = FakeApi()
 
@@ -195,6 +197,27 @@ class TestMarketDataProvider(unittest.TestCase):
         self.assertEqual(api.requested, expected_requests)
         self.assertEqual(len(resolved), len(expected_pool))
         self.assertTrue(all(symbol.startswith('SHFE.') for symbol in resolved))
+
+    def test_resolve_real_symbols_all_mode_uses_ine_bc_token_for_international_copper(self) -> None:
+        cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve.ine_bc"))
+
+        class FakeApi:
+            def __init__(self) -> None:
+                self.requested = []
+
+            def get_quote(self, symbol: str):
+                self.requested.append(symbol)
+                if symbol == 'KQ.m@INE.bc':
+                    return SimpleNamespace(underlying_symbol='INE.bc2409')
+                return SimpleNamespace(underlying_symbol='SHFE.rb2405')
+
+        api = FakeApi()
+        resolved = provider._resolve_real_symbols([], api=api, selection_mode='all')
+
+        self.assertIn('KQ.m@INE.bc', api.requested)
+        self.assertNotIn('KQ.m@SHFE.bc', api.requested)
+        self.assertIn('INE.bc2409', resolved)
 
     def test_stream_real_yields_initial_rows_before_first_wait_update(self) -> None:
         cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
