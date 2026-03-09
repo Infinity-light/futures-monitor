@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from futures_monitor.server.services.config_service import ConfigService
 from futures_monitor.server.schemas import ConfigDTO
+from futures_monitor.server.services.config_service import ConfigService
 
 
 class StubMonitorService:
@@ -18,7 +18,21 @@ class StubMonitorService:
 class TestConfigService(unittest.TestCase):
     def test_update_config_persists_and_refreshes_monitor_service(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            config_path = Path(temp_dir) / 'config.json'
+            config_path = Path(temp_dir) / 'runtime' / 'config.json'
+            repository_template_path = Path(temp_dir) / 'repository-config.json'
+            repository_template_path.write_text(
+                json.dumps(
+                    {
+                        'symbols': ['SHFE.rb'],
+                        'selection_mode': 'custom',
+                        'selection_symbols': ['SHFE.rb'],
+                        'tq_account': 'template-account',
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding='utf-8',
+            )
             service = ConfigService(str(config_path))
             monitor_service = StubMonitorService()
             service.set_monitor_service(monitor_service)
@@ -37,6 +51,7 @@ class TestConfigService(unittest.TestCase):
 
             result = service.update_config(payload)
             saved = json.loads(config_path.read_text(encoding='utf-8'))
+            template_saved = json.loads(repository_template_path.read_text(encoding='utf-8'))
 
         self.assertEqual(result.symbols, ['SHFE.rb', 'DCE.i'])
         self.assertEqual(result.selection_mode, 'custom')
@@ -45,6 +60,7 @@ class TestConfigService(unittest.TestCase):
         self.assertEqual(saved['tq_account'], 'next-account')
         self.assertEqual(saved['tq_password'], 'next-password')
         self.assertTrue(saved['use_real_market_data'])
+        self.assertEqual(template_saved['tq_account'], 'template-account')
         self.assertEqual(len(monitor_service.reloaded), 1)
         self.assertEqual(monitor_service.reloaded[0].tq_account, 'next-account')
 

@@ -5,6 +5,7 @@ depends:
   - futures_monitor.config.AppConfig
   - futures_monitor.config.load_config
   - futures_monitor.config.save_config
+  - futures_monitor.config.resolve_runtime_config_path
   - futures_monitor.server.schemas.ConfigDTO
   - futures_monitor.server.services.monitor_service.MonitorService
 exports:
@@ -24,7 +25,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from futures_monitor.config import AppConfig, SYMBOL_CANDIDATE_DEFINITIONS, load_config, save_config
+from futures_monitor.config import (
+    AppConfig,
+    SYMBOL_CANDIDATE_DEFINITIONS,
+    ensure_runtime_config,
+    load_config,
+    resolve_runtime_config_path,
+    save_config,
+)
 
 if TYPE_CHECKING:
     from futures_monitor.server.schemas import ConfigDTO
@@ -48,8 +56,8 @@ _SYMBOL_CANDIDATES = SYMBOL_CANDIDATE_DEFINITIONS
 class ConfigService:
     """Configuration service for reading and writing app configuration."""
 
-    def __init__(self, config_path: str = "futures_monitor/config.json") -> None:
-        self._config_path = config_path
+    def __init__(self, config_path: str | None = None) -> None:
+        self._config_path = str(ensure_runtime_config(resolve_runtime_config_path())) if config_path is None else config_path
         self._monitor_service: MonitorService | None = None
 
     def set_monitor_service(self, monitor_service: MonitorService | None) -> None:

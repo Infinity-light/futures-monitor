@@ -1,9 +1,16 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
-from futures_monitor.config import AppConfig, load_config, save_config
+from futures_monitor.config import (
+    AppConfig,
+    ensure_runtime_config,
+    load_config,
+    resolve_runtime_config_path,
+    save_config,
+)
 
 
 class TestConfig(unittest.TestCase):
@@ -21,6 +28,113 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(cfg.timezone, "Asia/Shanghai")
         self.assertTrue(cfg.strict_real_mode)
         self.assertEqual(cfg.ui_refresh_ms, 800)
+
+    def test_runtime_config_initializes_from_template_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_path = Path(temp_dir) / "runtime" / "config.json"
+            template_path = Path(temp_dir) / "template.json"
+            template_path.write_text(
+                json.dumps(
+                    {
+                        "symbols": ["SHFE.rb"],
+                        "selection_mode": "custom",
+                        "selection_symbols": ["SHFE.rb"],
+                        "take_profit_pct": 0.37,
+                        "stop_loss_pct": 0.21,
+                        "tq_account": "template-account",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            created_path = ensure_runtime_config(runtime_path, template_path)
+            created_payload = json.loads(created_path.read_text(encoding="utf-8"))
+
+            template_path.write_text(
+                json.dumps(
+                    {
+                        "symbols": ["DCE.i"],
+                        "selection_mode": "custom",
+                        "selection_symbols": ["DCE.i"],
+                        "take_profit_pct": 0.99,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            second_path = ensure_runtime_config(runtime_path, template_path)
+            second_payload = json.loads(second_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(created_path, runtime_path)
+        self.assertEqual(created_payload["tq_account"], "template-account")
+        self.assertEqual(created_payload["take_profit_pct"], 0.37)
+        self.assertEqual(second_payload["tq_account"], "template-account")
+        self.assertEqual(second_payload["take_profit_pct"], 0.37)
+
+    def test_load_config_without_explicit_path_uses_runtime_env_and_not_template_after_init(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_path = Path(temp_dir) / "persistent" / "config.json"
+            template_path = Path(temp_dir) / "repo-config.json"
+            template_path.write_text(
+                json.dumps(
+                    {
+                        "symbols": ["SHFE.rb"],
+                        "selection_mode": "custom",
+                        "selection_symbols": ["SHFE.rb"],
+                        "tq_account": "repo-template",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            old_runtime_env = os.environ.get("FUTURES_MONITOR_RUNTIME_CONFIG")
+            old_template_env = os.environ.get("FUTURES_MONITOR_CONFIG_TEMPLATE")
+            os.environ["FUTURES_MONITOR_RUNTIME_CONFIG"] = str(runtime_path)
+            os.environ["FUTURES_MONITOR_CONFIG_TEMPLATE"] = str(template_path)
+            try:
+                first = load_config()
+                save_config(
+                    AppConfig(
+                        symbols=["DCE.i"],
+                        selection_mode="custom",
+                        selection_symbols=["DCE.i"],
+                        tq_account="runtime-value",
+                    )
+                )
+                template_path.write_text(
+                    json.dumps(
+                        {
+                            "symbols": ["CZCE.MA"],
+                            "selection_mode": "custom",
+                            "selection_symbols": ["CZCE.MA"],
+                            "tq_account": "changed-template",
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                second = load_config()
+                runtime_payload = json.loads(runtime_path.read_text(encoding="utf-8"))
+            finally:
+                if old_runtime_env is None:
+                    os.environ.pop("FUTURES_MONITOR_RUNTIME_CONFIG", None)
+                else:
+                    os.environ["FUTURES_MONITOR_RUNTIME_CONFIG"] = old_runtime_env
+                if old_template_env is None:
+                    os.environ.pop("FUTURES_MONITOR_CONFIG_TEMPLATE", None)
+                else:
+                    os.environ["FUTURES_MONITOR_CONFIG_TEMPLATE"] = old_template_env
+
+        self.assertEqual(first.tq_account, "repo-template")
+        self.assertEqual(second.tq_account, "runtime-value")
+        self.assertEqual(runtime_payload["tq_account"], "runtime-value")
+        self.assertEqual(runtime_payload["selection_symbols"], ["DCE.i"])
 
     def test_save_and_reload_custom_selection(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -87,6 +201,21 @@ class TestConfig(unittest.TestCase):
             p.write_text(json.dumps({"take_profit_pct": 1.2}), encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_config(str(p))
+
+    def test_resolve_runtime_config_path_uses_runtime_env(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime_path = Path(temp_dir) / "x" / "config.json"
+            old_runtime_env = os.environ.get("FUTURES_MONITOR_RUNTIME_CONFIG")
+            os.environ["FUTURES_MONITOR_RUNTIME_CONFIG"] = str(runtime_path)
+            try:
+                resolved = resolve_runtime_config_path()
+            finally:
+                if old_runtime_env is None:
+                    os.environ.pop("FUTURES_MONITOR_RUNTIME_CONFIG", None)
+                else:
+                    os.environ["FUTURES_MONITOR_RUNTIME_CONFIG"] = old_runtime_env
+
+        self.assertEqual(resolved, runtime_path)
 
 
 if __name__ == "__main__":

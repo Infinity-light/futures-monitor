@@ -5,6 +5,8 @@ depends:
   - futures_monitor.server.schemas.MonitorStatus
   - futures_monitor.server.schemas.SymbolRow
   - futures_monitor.config.AppConfig
+  - futures_monitor.config.load_config
+  - futures_monitor.config.resolve_runtime_config_path
   - futures_monitor.market.MarketDataProvider
   - futures_monitor.strategy.breakout.BreakoutStrategy
   - futures_monitor.strategy.breakout.Kline
@@ -41,7 +43,7 @@ from zoneinfo import ZoneInfo
 
 from futures_monitor.alert.desktop import DesktopAlertSender
 from futures_monitor.alert.sms import SmsAlertSender
-from futures_monitor.config import AppConfig, load_config
+from futures_monitor.config import AppConfig, ensure_runtime_config, load_config, resolve_runtime_config_path
 from futures_monitor.data.storage import Storage
 from futures_monitor.market import MarketDataProvider
 from futures_monitor.strategy.breakout import BreakoutStrategy, Kline
@@ -119,10 +121,10 @@ def _build_runtime_state() -> dict:
 class MonitorService:
     """Monitor service for managing futures breakout monitoring."""
 
-    def __init__(self, config_path: str = "futures_monitor/config.json") -> None:
+    def __init__(self, config_path: str | None = None) -> None:
         self.logger = get_logger("futures_monitor.monitor_service")
-        self._config_path = config_path
-        self.config = self._load_config(config_path)
+        self._config_path = str(ensure_runtime_config(resolve_runtime_config_path())) if config_path is None else config_path
+        self.config = self._load_config(self._config_path)
 
         self.storage = Storage(db_path=f"{self.config.data_dir}/monitor.db")
         self.desktop = DesktopAlertSender(alert_sound=self.config.alert_sound)
@@ -343,7 +345,6 @@ class MonitorService:
             machine = self.machine_map.get(symbol)
             runtime = self.runtime_map.get(symbol)
             if machine and runtime:
-                latest = self.provider.get_latest_snapshot([symbol]).get(symbol)
                 rows.append(SymbolRow(**self._build_row_payload(symbol)))
 
         return MonitorStatus(

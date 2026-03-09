@@ -4,6 +4,9 @@ role: 配置模块
 depends: []
 exports:
   - AppConfig
+  - resolve_config_template_path
+  - resolve_runtime_config_path
+  - ensure_runtime_config
   - load_config
   - save_config
   - normalize_selection_mode
@@ -16,8 +19,11 @@ exports:
   - SUPPORTED_EXCHANGES
 status: IMPLEMENTED
 functions:
-  - load_config(path: str = "futures_monitor/config.json") -> AppConfig
-  - save_config(config: AppConfig, path: str = "futures_monitor/config.json") -> str
+  - resolve_config_template_path() -> Path
+  - resolve_runtime_config_path() -> Path
+  - ensure_runtime_config(path: str | Path | None = None, template_path: str | Path | None = None) -> Path
+  - load_config(path: str | None = None) -> AppConfig
+  - save_config(config: AppConfig, path: str | None = None) -> str
   - normalize_selection_mode(value: object, symbols: list[str] | None = None, exchanges: list[str] | None = None) -> str
   - normalize_selection_exchanges(values: object) -> list[str]
   - normalize_selection_symbols(values: object) -> list[str]
@@ -30,13 +36,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import os
 from pathlib import Path
+import shutil
 
 
 ALL_SYMBOL_LABEL = "ALL 全部品种（自动读取当前有效合约）"
 ALL_SYMBOL_ALIASES = {"ALL", "全部", ALL_SYMBOL_LABEL}
 SUPPORTED_SELECTION_MODES = {"all", "exchange", "custom"}
 SUPPORTED_EXCHANGES = {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"}
+_PACKAGE_ROOT = Path(__file__).resolve().parent
+_DEFAULT_TEMPLATE_CONFIG_PATH = _PACKAGE_ROOT / "config.json"
+_DEFAULT_RUNTIME_DATA_DIR = _PACKAGE_ROOT.parent / ".data"
+_RUNTIME_CONFIG_ENV = "FUTURES_MONITOR_RUNTIME_CONFIG"
+_RUNTIME_DATA_DIR_ENV = "FUTURES_MONITOR_DATA_DIR"
+_TEMPLATE_CONFIG_ENV = "FUTURES_MONITOR_CONFIG_TEMPLATE"
 SYMBOL_CANDIDATE_DEFINITIONS = [
     {"value": "SHFE.rb", "code": "SHFE.rb", "name": "螺纹钢", "exchange": "SHFE"},
     {"value": "SHFE.hc", "code": "SHFE.hc", "name": "热轧卷板", "exchange": "SHFE"},
@@ -93,6 +107,35 @@ class AppConfig:
     ui_refresh_ms: int = 800
     tq_account: str = ""
     tq_password: str = ""
+
+
+def resolve_config_template_path() -> Path:
+    configured = os.getenv(_TEMPLATE_CONFIG_ENV)
+    return Path(configured).expanduser() if configured else _DEFAULT_TEMPLATE_CONFIG_PATH
+
+
+def resolve_runtime_config_path() -> Path:
+    configured_path = os.getenv(_RUNTIME_CONFIG_ENV)
+    if configured_path:
+        return Path(configured_path).expanduser()
+
+    configured_data_dir = os.getenv(_RUNTIME_DATA_DIR_ENV)
+    data_dir = Path(configured_data_dir).expanduser() if configured_data_dir else _DEFAULT_RUNTIME_DATA_DIR
+    return data_dir / "config.json"
+
+
+def ensure_runtime_config(path: str | Path | None = None, template_path: str | Path | None = None) -> Path:
+    runtime_path = Path(path).expanduser() if path is not None else resolve_runtime_config_path()
+    runtime_path.parent.mkdir(parents=True, exist_ok=True)
+    if runtime_path.exists():
+        return runtime_path
+
+    source_path = Path(template_path).expanduser() if template_path is not None else resolve_config_template_path()
+    if source_path.exists():
+        shutil.copyfile(source_path, runtime_path)
+    else:
+        runtime_path.write_text(json.dumps(_config_to_payload(AppConfig()), ensure_ascii=False, indent=2), encoding="utf-8")
+    return runtime_path
 
 
 def _dedupe_strings(values: list[str]) -> list[str]:
@@ -204,8 +247,29 @@ def _validate_config(config: AppConfig) -> None:
         raise ValueError("ui_refresh_ms must be positive int")
 
 
-def load_config(path: str = "futures_monitor/config.json") -> AppConfig:
-    config_path = Path(path)
+def _config_to_payload(config: AppConfig) -> dict:
+    return {
+        "symbols": list(config.symbols),
+        "selection_mode": config.selection_mode,
+        "selection_exchanges": list(config.selection_exchanges),
+        "selection_symbols": list(config.selection_symbols),
+        "take_profit_pct": config.take_profit_pct,
+        "stop_loss_pct": config.stop_loss_pct,
+        "position_pct": config.position_pct,
+        "enable_sms": config.enable_sms,
+        "alert_sound": config.alert_sound,
+        "data_dir": config.data_dir,
+        "timezone": config.timezone,
+        "use_real_market_data": config.use_real_market_data,
+        "strict_real_mode": config.strict_real_mode,
+        "ui_refresh_ms": config.ui_refresh_ms,
+        "tq_account": config.tq_account,
+        "tq_password": config.tq_password,
+    }
+
+
+def load_config(path: str | None = None) -> AppConfig:
+    config_path = ensure_runtime_config() if path is None else Path(path)
     if not config_path.exists():
         return AppConfig()
 
@@ -235,7 +299,7 @@ def load_config(path: str = "futures_monitor/config.json") -> AppConfig:
     return config
 
 
-def save_config(config: AppConfig, path: str = "futures_monitor/config.json") -> str:
+def save_config(config: AppConfig, path: str | None = None) -> str:
     config.selection_exchanges = normalize_selection_exchanges(config.selection_exchanges)
     config.selection_symbols = normalize_selection_symbols(config.selection_symbols)
     config.selection_mode = normalize_selection_mode(
@@ -246,26 +310,9 @@ def save_config(config: AppConfig, path: str = "futures_monitor/config.json") ->
     config.symbols = derive_legacy_symbols(config.selection_mode, config.selection_symbols)
     _validate_config(config)
 
-    payload = {
-        "symbols": list(config.symbols),
-        "selection_mode": config.selection_mode,
-        "selection_exchanges": list(config.selection_exchanges),
-        "selection_symbols": list(config.selection_symbols),
-        "take_profit_pct": config.take_profit_pct,
-        "stop_loss_pct": config.stop_loss_pct,
-        "position_pct": config.position_pct,
-        "enable_sms": config.enable_sms,
-        "alert_sound": config.alert_sound,
-        "data_dir": config.data_dir,
-        "timezone": config.timezone,
-        "use_real_market_data": config.use_real_market_data,
-        "strict_real_mode": config.strict_real_mode,
-        "ui_refresh_ms": config.ui_refresh_ms,
-        "tq_account": config.tq_account,
-        "tq_password": config.tq_password,
-    }
+    payload = _config_to_payload(config)
 
-    config_path = Path(path)
+    config_path = Path(path) if path is not None else resolve_runtime_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
     with config_path.open("w", encoding="utf-8") as f:
