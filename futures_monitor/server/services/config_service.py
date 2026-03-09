@@ -27,8 +27,8 @@ from typing import TYPE_CHECKING
 
 from futures_monitor.config import (
     AppConfig,
-    SYMBOL_CANDIDATE_DEFINITIONS,
     ensure_runtime_config,
+    get_symbol_candidates,
     load_config,
     resolve_runtime_config_path,
     save_config,
@@ -50,7 +50,7 @@ _EXCHANGE_NAMES = {
     "GFEX": "广期所",
 }
 
-_SYMBOL_CANDIDATES = SYMBOL_CANDIDATE_DEFINITIONS
+_SYMBOL_CANDIDATES = get_symbol_candidates()
 
 
 class ConfigService:
@@ -107,6 +107,8 @@ class ConfigService:
             ui_refresh_ms=config.ui_refresh_ms,
             tq_account=config.tq_account,
             tq_password=config.tq_password,
+            probe_target_count=config.probe_target_count,
+            probe_distance_ratio=config.probe_distance_ratio,
         )
 
     @staticmethod
@@ -129,6 +131,8 @@ class ConfigService:
             ui_refresh_ms=dto.ui_refresh_ms,
             tq_account=dto.tq_account,
             tq_password=dto.tq_password,
+            probe_target_count=dto.probe_target_count,
+            probe_distance_ratio=dto.probe_distance_ratio,
         )
 
     def get_config(self) -> "ConfigDTO":

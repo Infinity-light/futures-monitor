@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from futures_monitor.config import AppConfig
+from futures_monitor.config import AppConfig, get_fixed_monitor_pool
 from futures_monitor.market import MarketDataProvider
 from futures_monitor.utils.logger import get_logger
 
@@ -96,60 +96,27 @@ class TestMarketDataProvider(unittest.TestCase):
 
         resolved = provider.resolve_symbols([], selection_mode='exchange', selection_exchanges=['DCE'])
 
-        self.assertEqual(resolved, ['DCE.i', 'DCE.m'])
+        self.assertEqual(resolved, get_fixed_monitor_pool('exchange', ['DCE']))
 
-    def test_resolve_all_real_symbols_prefers_cont_quotes_direct_symbols(self) -> None:
+    def test_resolve_real_symbols_all_mode_uses_fixed_candidate_pool_not_dynamic_discovery(self) -> None:
         cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
-        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve.cont"))
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve.fixed"))
 
         class FakeApi:
             def __init__(self) -> None:
-                self.query_quotes_called = False
+                self.requested = []
 
-            def query_cont_quotes(self, **kwargs):
-                self.query_cont_quotes_kwargs = kwargs
-                return ['SHFE.rb2605', 'SHFE.bu2604']
-
-            def query_quotes(self, **kwargs):
-                self.query_quotes_called = True
-                return ['SHFE.rb2601', 'SHFE.rb2605', 'SHFE.bu2604']
+            def get_quote(self, symbol: str):
+                self.requested.append(symbol)
+                return SimpleNamespace(underlying_symbol=f'{symbol}2409')
 
         api = FakeApi()
+        resolved = provider._resolve_real_symbols([], api=api, selection_mode='all')
 
-        resolved = provider._resolve_all_real_symbols(api)
-
-        self.assertEqual(resolved, ['SHFE.rb2605', 'SHFE.bu2604'])
-        self.assertEqual(api.query_cont_quotes_kwargs, {})
-        self.assertFalse(api.query_quotes_called)
-
-    def test_resolve_all_real_symbols_falls_back_only_when_cont_quotes_empty(self) -> None:
-        cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
-        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve.fallback"))
-
-        class FakeApi:
-            def __init__(self) -> None:
-                self.query_quotes_called = False
-
-            def query_cont_quotes(self, **kwargs):
-                self.query_cont_quotes_kwargs = kwargs
-                return []
-
-            def query_quotes(self, **kwargs):
-                self.query_quotes_called = True
-                self.query_quotes_kwargs = kwargs
-                return ['SHFE.rb2601', 'SHFE.rb2605', 'SHFE.bu2604']
-
-        api = FakeApi()
-
-        resolved = provider._resolve_all_real_symbols(api, exchange_id='SHFE')
-
-        self.assertTrue(api.query_quotes_called)
-        self.assertEqual(api.query_cont_quotes_kwargs, {'exchange_id': 'SHFE'})
-        self.assertEqual(
-            api.query_quotes_kwargs,
-            {'ins_class': 'FUTURE', 'expired': False, 'exchange_id': 'SHFE'},
-        )
-        self.assertEqual(resolved, ['SHFE.rb2601', 'SHFE.rb2605', 'SHFE.bu2604'])
+        expected_pool = get_fixed_monitor_pool('all')
+        self.assertEqual(api.requested, expected_pool)
+        self.assertEqual(resolved[0], f'{expected_pool[0]}2409')
+        self.assertEqual(len(resolved), len(expected_pool))
 
     def test_resolve_real_symbols_exchange_mode_uses_active_contracts_only(self) -> None:
         cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
@@ -157,24 +124,21 @@ class TestMarketDataProvider(unittest.TestCase):
 
         class FakeApi:
             def __init__(self) -> None:
-                self.query_quotes_called = False
+                self.requested = []
 
-            def query_cont_quotes(self, **kwargs):
-                exchange_id = kwargs.get('exchange_id')
-                if exchange_id == 'SHFE':
-                    return ['SHFE.rb2605', 'SHFE.bu2604']
-                return []
-
-            def query_quotes(self, **kwargs):
-                self.query_quotes_called = True
-                return ['SHFE.rb2601', 'SHFE.rb2605', 'SHFE.bu2601', 'SHFE.bu2604']
+            def get_quote(self, symbol: str):
+                self.requested.append(symbol)
+                suffix = symbol.split('.', 1)[1]
+                return SimpleNamespace(underlying_symbol=f'SHFE.{suffix}2409')
 
         api = FakeApi()
 
         resolved = provider._resolve_real_symbols([], api=api, selection_mode='exchange', selection_exchanges=['SHFE'])
 
-        self.assertEqual(resolved, ['SHFE.rb2605', 'SHFE.bu2604'])
-        self.assertFalse(api.query_quotes_called)
+        expected_pool = get_fixed_monitor_pool('exchange', ['SHFE'])
+        self.assertEqual(api.requested, expected_pool)
+        self.assertEqual(len(resolved), len(expected_pool))
+        self.assertTrue(all(symbol.startswith('SHFE.') for symbol in resolved))
 
     def test_stream_real_yields_initial_rows_before_first_wait_update(self) -> None:
         cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')

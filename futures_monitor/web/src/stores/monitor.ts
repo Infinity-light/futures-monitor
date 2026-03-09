@@ -47,6 +47,10 @@ export interface SymbolRow {
   stopLoss: number | null
   lastEvent: string | null
   hasBought: boolean
+  probeCount: number
+  probeProgress: number
+  probeIconLevel: number
+  probeStateText: string
 }
 
 export interface LogEntry {
@@ -69,6 +73,10 @@ export interface SymbolRowData {
   stop_loss?: number | null
   last_event?: string
   has_bought?: boolean
+  probe_count?: number
+  probe_progress?: number
+  probe_icon_level?: number
+  probe_state_text?: string
 }
 
 function normalizeConnectionStatus(status: string): ConnectionStatus {
@@ -198,7 +206,11 @@ export const useMonitorStore = defineStore('monitor', {
         takeProfit: data.take_profit ?? existing?.takeProfit ?? null,
         stopLoss: data.stop_loss ?? existing?.stopLoss ?? null,
         lastEvent: data.last_event ?? existing?.lastEvent ?? null,
-        hasBought: data.has_bought ?? existing?.hasBought ?? false
+        hasBought: data.has_bought ?? existing?.hasBought ?? false,
+        probeCount: data.probe_count ?? existing?.probeCount ?? 0,
+        probeProgress: data.probe_progress ?? existing?.probeProgress ?? 0,
+        probeIconLevel: data.probe_icon_level ?? existing?.probeIconLevel ?? 0,
+        probeStateText: data.probe_state_text ?? existing?.probeStateText ?? '监控中'
       }
       this.symbolData.set(data.symbol, row)
       if (!this.symbols.includes(data.symbol)) {

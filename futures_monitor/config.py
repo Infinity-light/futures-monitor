@@ -14,6 +14,8 @@ exports:
   - normalize_selection_symbols
   - derive_legacy_symbols
   - is_all_selection_token
+  - get_symbol_candidates
+  - get_fixed_monitor_pool
   - ALL_SYMBOL_LABEL
   - ALL_SYMBOL_ALIASES
   - SUPPORTED_EXCHANGES
@@ -29,6 +31,8 @@ functions:
   - normalize_selection_symbols(values: object) -> list[str]
   - derive_legacy_symbols(selection_mode: str, selection_symbols: list[str]) -> list[str]
   - is_all_selection_token(value: object) -> bool
+  - get_symbol_candidates() -> list[dict[str, str]]
+  - get_fixed_monitor_pool(selection_mode: str = "all", selection_exchanges: list[str] | None = None) -> list[str]
 ---
 """
 
@@ -45,6 +49,8 @@ ALL_SYMBOL_LABEL = "ALL 全部品种（自动读取当前有效合约）"
 ALL_SYMBOL_ALIASES = {"ALL", "全部", ALL_SYMBOL_LABEL}
 SUPPORTED_SELECTION_MODES = {"all", "exchange", "custom"}
 SUPPORTED_EXCHANGES = {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"}
+DEFAULT_PROBE_TARGET_COUNT = 3
+DEFAULT_PROBE_DISTANCE_RATIO = 0.2
 _PACKAGE_ROOT = Path(__file__).resolve().parent
 _DEFAULT_TEMPLATE_CONFIG_PATH = _PACKAGE_ROOT / "config.json"
 _DEFAULT_RUNTIME_DATA_DIR = _PACKAGE_ROOT.parent / ".data"
@@ -161,6 +167,8 @@ class AppConfig:
     ui_refresh_ms: int = 800
     tq_account: str = ""
     tq_password: str = ""
+    probe_target_count: int = DEFAULT_PROBE_TARGET_COUNT
+    probe_distance_ratio: float = DEFAULT_PROBE_DISTANCE_RATIO
 
 
 def resolve_config_template_path() -> Path:
@@ -252,6 +260,21 @@ def derive_legacy_symbols(selection_mode: str, selection_symbols: list[str]) -> 
     return list(selection_symbols)
 
 
+def get_symbol_candidates() -> list[dict[str, str]]:
+    return [dict(item) for item in SYMBOL_CANDIDATE_DEFINITIONS]
+
+
+def get_fixed_monitor_pool(selection_mode: str = "all", selection_exchanges: list[str] | None = None) -> list[str]:
+    if selection_mode == "exchange":
+        exchanges = set(normalize_selection_exchanges(selection_exchanges or []))
+        return [
+            str(item["value"])
+            for item in SYMBOL_CANDIDATE_DEFINITIONS
+            if str(item.get("exchange", "")).upper() in exchanges
+        ]
+    return [str(item["value"]) for item in SYMBOL_CANDIDATE_DEFINITIONS]
+
+
 def _resolve_selection_fields(raw: dict) -> tuple[str, list[str], list[str], list[str]]:
     raw_symbols = normalize_selection_symbols(raw.get("symbols", []))
     raw_selection_symbols = raw.get("selection_symbols", raw.get("selection_contracts", []))
@@ -299,6 +322,9 @@ def _validate_config(config: AppConfig) -> None:
         raise ValueError("timezone must be non-empty string")
     if not isinstance(config.ui_refresh_ms, int) or config.ui_refresh_ms <= 0:
         raise ValueError("ui_refresh_ms must be positive int")
+    if not isinstance(config.probe_target_count, int) or config.probe_target_count <= 0:
+        raise ValueError("probe_target_count must be positive int")
+    _validate_pct("probe_distance_ratio", config.probe_distance_ratio)
 
 
 def _config_to_payload(config: AppConfig) -> dict:
@@ -319,6 +345,8 @@ def _config_to_payload(config: AppConfig) -> dict:
         "ui_refresh_ms": config.ui_refresh_ms,
         "tq_account": config.tq_account,
         "tq_password": config.tq_password,
+        "probe_target_count": config.probe_target_count,
+        "probe_distance_ratio": config.probe_distance_ratio,
     }
 
 
@@ -348,6 +376,8 @@ def load_config(path: str | None = None) -> AppConfig:
         ui_refresh_ms=raw.get("ui_refresh_ms", 800),
         tq_account=raw.get("tq_account", ""),
         tq_password=raw.get("tq_password", ""),
+        probe_target_count=raw.get("probe_target_count", DEFAULT_PROBE_TARGET_COUNT),
+        probe_distance_ratio=raw.get("probe_distance_ratio", DEFAULT_PROBE_DISTANCE_RATIO),
     )
     _validate_config(config)
     return config

@@ -98,6 +98,8 @@ export interface ConfigResponse {
   ui_refresh_ms: number
   tq_account: string
   tq_password: string
+  probe_target_count: number
+  probe_distance_ratio: number
 }
 
 export interface ConfigUpdate {
@@ -117,6 +119,8 @@ export interface ConfigUpdate {
   ui_refresh_ms?: number
   tq_account?: string
   tq_password?: string
+  probe_target_count?: number
+  probe_distance_ratio?: number
 }
 
 export interface SymbolRow {
@@ -133,6 +137,10 @@ export interface SymbolRow {
   stop_loss: number | null
   last_event: string
   has_bought: boolean
+  probe_count: number
+  probe_progress: number
+  probe_icon_level: number
+  probe_state_text: string
 }
 
 export interface MonitorStatus {

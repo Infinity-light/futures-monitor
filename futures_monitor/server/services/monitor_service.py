@@ -44,7 +44,7 @@ from zoneinfo import ZoneInfo
 
 from futures_monitor.alert.desktop import DesktopAlertSender
 from futures_monitor.alert.sms import SmsAlertSender
-from futures_monitor.config import AppConfig, ensure_runtime_config, load_config, resolve_runtime_config_path
+from futures_monitor.config import AppConfig, ensure_runtime_config, get_fixed_monitor_pool, load_config, resolve_runtime_config_path
 from futures_monitor.data.storage import Storage
 from futures_monitor.market import MarketDataProvider
 from futures_monitor.strategy.breakout import BreakoutStrategy, Kline
@@ -116,7 +116,17 @@ def _build_runtime_state() -> dict:
         "tp_sent": False,
         "sl_sent": False,
         "last_event": "等待行情",
+        "probe_count": 0,
+        "probe_progress": 0,
+        "probe_icon_level": 0,
+        "probe_state_text": "监控中",
+        "last_probe_target": None,
+        "last_probe_bucket": None,
     }
+
+
+def _clamp_progress(value: float) -> int:
+    return max(0, min(100, int(round(value))))
 
 
 class MonitorService:
@@ -175,9 +185,12 @@ class MonitorService:
         self.sms = SmsAlertSender(enabled=self.config.enable_sms)
         self.provider = MarketDataProvider(config=self.config, logger=self.logger)
         if not self._running:
-            self.symbols = self.config.selection_symbols or ["SHFE.rb"]
             self.selection_mode = self.config.selection_mode
             self.selection_exchanges = list(self.config.selection_exchanges)
+            if self.selection_mode == "custom":
+                self.symbols = self.config.selection_symbols or ["SHFE.rb"]
+            else:
+                self.symbols = get_fixed_monitor_pool(self.selection_mode, self.selection_exchanges)
         return self.config
 
     def _schedule_broadcast(self, event: dict) -> None:
@@ -223,6 +236,10 @@ class MonitorService:
             "stop_loss": runtime.get("stop_loss_price"),
             "last_event": runtime.get("last_event", "-"),
             "has_bought": machine.get_state() == HOLDING,
+            "probe_count": int(runtime.get("probe_count", 0) or 0),
+            "probe_progress": int(runtime.get("probe_progress", 0) or 0),
+            "probe_icon_level": int(runtime.get("probe_icon_level", 0) or 0),
+            "probe_state_text": str(runtime.get("probe_state_text", "监控中") or "监控中"),
         }
 
     def _emit_row(self, symbol: str) -> None:
@@ -265,8 +282,9 @@ class MonitorService:
         """Resolve the concrete symbols that will be monitored for this run."""
         if self.selection_mode == "custom":
             return requested_symbols or ["SHFE.rb"]
+        fixed_pool = get_fixed_monitor_pool(self.selection_mode, self.selection_exchanges)
         return self.provider.resolve_symbols(
-            requested_symbols,
+            fixed_pool,
             selection_mode=self.selection_mode,
             selection_exchanges=self.selection_exchanges,
         )
@@ -331,9 +349,9 @@ class MonitorService:
 
         self._emit_running(True)
         if self.selection_mode == "all":
-            msg = "启动监控: 全部市场（自动读取当前有效合约）"
+            msg = "启动监控: 固定主力池（映射当前活跃合约）"
         elif self.selection_mode == "exchange":
-            msg = f"启动监控: 交易所 {', '.join(self.selection_exchanges)}（自动读取当前有效合约）"
+            msg = f"启动监控: 交易所 {', '.join(self.selection_exchanges)} 固定主力池（映射当前活跃合约）"
         else:
             msg = f"启动监控: {', '.join(self.symbols)}"
         self._emit_log(msg)
@@ -420,6 +438,62 @@ class MonitorService:
         runtime["day_high"] = kline.high if runtime["day_high"] is None else max(runtime["day_high"], kline.high)
         runtime["day_low"] = kline.low if runtime["day_low"] is None else min(runtime["day_low"], kline.low)
 
+    def _update_probe_state(self, symbol: str, kline: Kline) -> None:
+        runtime = self.runtime_map.setdefault(symbol, _build_runtime_state())
+        strategy = self.strategy_map.setdefault(symbol, BreakoutStrategy())
+        probe_target_count = max(1, int(self.config.probe_target_count))
+        probe_distance_ratio = max(0.0, float(self.config.probe_distance_ratio))
+        klines = strategy.klines
+
+        if len(klines) < 4 or runtime.get("day_high") is None or runtime.get("day_low") is None:
+            runtime["probe_progress"] = 0
+            runtime["probe_icon_level"] = min(int(runtime.get("probe_count", 0) or 0), probe_target_count)
+            runtime["probe_state_text"] = "监控中"
+            runtime["last_probe_target"] = None
+            runtime["last_probe_bucket"] = None
+            return
+
+        previous_three = klines[-4:-1]
+        current = klines[-1]
+        if not all(item.close > item.open for item in previous_three):
+            runtime["probe_progress"] = 0
+            runtime["probe_state_text"] = "监控中"
+            runtime["last_probe_target"] = None
+            runtime["last_probe_bucket"] = None
+            return
+
+        target_price = previous_three[-1].low
+        day_high = float(runtime["day_high"])
+        day_low = float(runtime["day_low"])
+        price_range = max(day_high - day_low, abs(target_price) * 0.001, 1e-6)
+        threshold = max(price_range * probe_distance_ratio, 1e-6)
+        distance = max(0.0, current.low - target_price)
+        progress = _clamp_progress((1 - min(distance / threshold, 1.0)) * 100)
+        runtime["probe_progress"] = progress
+        runtime["probe_icon_level"] = min(int(runtime.get("probe_count", 0) or 0), probe_target_count)
+
+        if current.low < target_price:
+            runtime["probe_progress"] = 100
+            runtime["probe_state_text"] = "突破检测"
+            runtime["last_probe_target"] = target_price
+            runtime["last_probe_bucket"] = None
+            return
+
+        if distance <= threshold:
+            bucket = f"{target_price:.6f}:{current.timestamp}"
+            if runtime.get("last_probe_bucket") != bucket:
+                runtime["probe_count"] = min(probe_target_count, int(runtime.get("probe_count", 0) or 0) + 1)
+                runtime["probe_icon_level"] = min(int(runtime.get("probe_count", 0) or 0), probe_target_count)
+                runtime["last_probe_bucket"] = bucket
+            runtime["last_probe_target"] = target_price
+            runtime["probe_state_text"] = f"第{min(int(runtime.get('probe_count', 0) or 0), probe_target_count)}次试探"
+            return
+
+        runtime["probe_state_text"] = "监控中"
+        if progress == 0:
+            runtime["last_probe_bucket"] = None
+        runtime["last_probe_target"] = target_price
+
     def _handle_monitoring_state(self, symbol: str, kline: Kline) -> None:
         """Handle MONITORING state logic."""
         strategy = self.strategy_map.setdefault(symbol, BreakoutStrategy())
@@ -433,14 +507,17 @@ class MonitorService:
             take_profit_pct=self.config.take_profit_pct,
             stop_loss_pct=self.config.stop_loss_pct,
         )
+        self._update_probe_state(symbol, kline)
         if not result.triggered:
-            runtime["last_event"] = "监控中"
+            runtime["last_event"] = runtime.get("probe_state_text") or "监控中"
             return
 
         machine.transition(BREAKOUT_DETECTED)
         runtime["breakout_price"] = result.breakout_price
         runtime["take_profit_price"] = result.take_profit_price
         runtime["stop_loss_price"] = result.stop_loss_price
+        runtime["probe_progress"] = 100
+        runtime["probe_state_text"] = "突破检测"
         runtime["last_event"] = "突破已触发，等待买入"
 
         msg = _build_breakout_message(

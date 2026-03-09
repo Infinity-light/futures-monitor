@@ -47,6 +47,8 @@ class TestConfigService(unittest.TestCase):
                 tq_password='next-password',
                 use_real_market_data=True,
                 strict_real_mode=True,
+                probe_target_count=5,
+                probe_distance_ratio=0.3,
             )
 
             result = service.update_config(payload)
@@ -60,6 +62,10 @@ class TestConfigService(unittest.TestCase):
         self.assertEqual(saved['tq_account'], 'next-account')
         self.assertEqual(saved['tq_password'], 'next-password')
         self.assertTrue(saved['use_real_market_data'])
+        self.assertEqual(saved['probe_target_count'], 5)
+        self.assertEqual(saved['probe_distance_ratio'], 0.3)
+        self.assertEqual(result.probe_target_count, 5)
+        self.assertEqual(result.probe_distance_ratio, 0.3)
         self.assertEqual(template_saved['tq_account'], 'template-account')
         self.assertEqual(len(monitor_service.reloaded), 1)
         self.assertEqual(monitor_service.reloaded[0].tq_account, 'next-account')

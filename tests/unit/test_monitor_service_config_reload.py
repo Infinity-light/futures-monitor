@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from futures_monitor.config import AppConfig, save_config
+from futures_monitor.config import AppConfig, get_fixed_monitor_pool, save_config
 from futures_monitor.server.services.monitor_service import MonitorService
 from futures_monitor.strategy.breakout import Kline
 
@@ -55,7 +55,7 @@ class TestMonitorServiceConfigReload(unittest.TestCase):
         self.assertFalse(service.config.strict_real_mode)
         self.assertEqual(service.selection_mode, 'exchange')
         self.assertEqual(service.selection_exchanges, ['DCE'])
-        self.assertEqual(service.symbols, ['DCE.i', 'DCE.m'])
+        self.assertEqual(service.symbols, get_fixed_monitor_pool('exchange', ['DCE']))
         self.assertIsNot(service.provider, original_provider)
         self.assertEqual(service.provider._config.tq_account, 'new-account')
         self.assertEqual(service.provider.get_symbol_metadata('DCE.i2409')['name'], '铁矿石')
@@ -169,12 +169,48 @@ class TestMonitorServiceConfigReload(unittest.TestCase):
                     runtime_symbols = list(service.runtime_map)
                     service.stop()
 
-        mocked_resolve.assert_called_once_with([], selection_mode='all', selection_exchanges=[])
+        mocked_resolve.assert_called_once_with(get_fixed_monitor_pool('all'), selection_mode='all', selection_exchanges=[])
         self.assertTrue(result['success'])
         self.assertEqual(result['symbols'], ['SHFE.rb', 'DCE.i'])
         self.assertEqual(active_symbols, ['SHFE.rb', 'DCE.i'])
         self.assertIn('SHFE.rb', runtime_symbols)
         self.assertIn('DCE.i', runtime_symbols)
+
+    def test_probe_logic_updates_count_progress_and_state_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / 'config.json'
+            save_config(
+                AppConfig(
+                    selection_mode='custom',
+                    selection_symbols=['SHFE.rb'],
+                    use_real_market_data=False,
+                    probe_target_count=3,
+                    probe_distance_ratio=0.2,
+                    data_dir=str(Path(temp_dir) / 'data'),
+                ),
+                str(config_path),
+            )
+            service = MonitorService(str(config_path))
+            service._prepare_symbol_context(['SHFE.rb'])
+
+            service._process_tick('SHFE.rb', Kline(open=100, high=110, low=100, close=108, timestamp='2026-03-09T09:00:00'))
+            service._process_tick('SHFE.rb', Kline(open=108, high=112, low=102, close=110, timestamp='2026-03-09T09:01:00'))
+            service._process_tick('SHFE.rb', Kline(open=110, high=114, low=104, close=112, timestamp='2026-03-09T09:02:00'))
+            service._process_tick('SHFE.rb', Kline(open=112, high=116, low=104.5, close=113, timestamp='2026-03-09T09:03:00'))
+            first_probe = service.get_status().rows[0]
+
+            service._process_tick('SHFE.rb', Kline(open=113, high=117, low=104.6, close=112, timestamp='2026-03-09T09:04:00'))
+            second_probe = service.get_status().rows[0]
+
+            service._process_tick('SHFE.rb', Kline(open=112, high=113, low=110, close=111, timestamp='2026-03-09T09:05:00'))
+            cooled_off = service.get_status().rows[0]
+
+        self.assertEqual(first_probe.probe_count, 1)
+        self.assertGreater(first_probe.probe_progress, 0)
+        self.assertEqual(first_probe.probe_state_text, '第1次试探')
+        self.assertEqual(second_probe.probe_count, 2)
+        self.assertEqual(second_probe.probe_state_text, '第2次试探')
+        self.assertEqual(cooled_off.probe_state_text, '监控中')
 
     def test_custom_mode_keeps_requested_symbols_without_provider_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

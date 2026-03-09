@@ -194,7 +194,7 @@ functions:
         <section class="config-section">
           <div class="section-heading">
             <h3>风控参数</h3>
-            <p>用于突破后的止盈止损提醒，建议按策略要求维护。</p>
+            <p>用于突破后的止盈止损提醒，以及预突破试探提示的触发阈值。</p>
           </div>
           <div class="config-grid two-columns">
             <el-form-item label="止盈比例 take_profit_pct">
@@ -204,7 +204,16 @@ functions:
             <el-form-item label="止损比例 stop_loss_pct">
               <el-input-number v-model="form.stop_loss_pct" :min="0" :max="1" :step="0.01" :precision="2" />
             </el-form-item>
+
+            <el-form-item label="预突破目标次数 probe_target_count">
+              <el-input-number v-model="form.probe_target_count" :min="1" :max="9" :step="1" :precision="0" />
+            </el-form-item>
+
+            <el-form-item label="预突破阈值 probe_distance_ratio">
+              <el-input-number v-model="form.probe_distance_ratio" :min="0" :max="1" :step="0.05" :precision="2" />
+            </el-form-item>
           </div>
+          <div class="field-help">当价格接近当前观察突破位到设定阈值内时，系统会累计试探次数并展示黄色进度条，最多显示到目标次数。</div>
         </section>
 
         <section class="config-section">
@@ -307,6 +316,8 @@ const form = reactive({
   selection_symbols: [] as string[],
   take_profit_pct: 0.5,
   stop_loss_pct: 0.5,
+  probe_target_count: 3,
+  probe_distance_ratio: 0.2,
   use_real_market_data: false,
   strict_real_mode: true
 })
@@ -391,6 +402,8 @@ function syncFormFromStore(): void {
   form.selection_symbols = [...(store.config?.selection_symbols ?? [])]
   form.take_profit_pct = store.config?.take_profit_pct ?? 0.5
   form.stop_loss_pct = store.config?.stop_loss_pct ?? 0.5
+  form.probe_target_count = store.config?.probe_target_count ?? 3
+  form.probe_distance_ratio = store.config?.probe_distance_ratio ?? 0.2
   form.use_real_market_data = store.config?.use_real_market_data ?? false
   form.strict_real_mode = store.config?.strict_real_mode ?? true
 
@@ -502,6 +515,8 @@ async function handleSaveConfig() {
       symbols: form.selection_mode === 'custom' ? [...form.selection_symbols] : [],
       take_profit_pct: form.take_profit_pct,
       stop_loss_pct: form.stop_loss_pct,
+      probe_target_count: form.probe_target_count,
+      probe_distance_ratio: form.probe_distance_ratio,
       use_real_market_data: form.use_real_market_data,
       strict_real_mode: form.strict_real_mode
     })

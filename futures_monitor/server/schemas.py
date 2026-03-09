@@ -59,6 +59,10 @@ class SymbolRow(BaseModel):
     stop_loss: float | None = None
     last_event: str = "-"
     has_bought: bool = False
+    probe_count: int = 0
+    probe_progress: int = 0
+    probe_icon_level: int = 0
+    probe_state_text: str = "监控中"
 
 
 class MonitorStatus(BaseModel):
@@ -114,6 +118,8 @@ class ConfigDTO(BaseModel):
     ui_refresh_ms: int = 800
     tq_account: str = ""
     tq_password: str = ""
+    probe_target_count: int = 3
+    probe_distance_ratio: float = 0.2
     symbol_candidates: list[SymbolCandidate] = Field(default_factory=list)
 
     def model_dump_masked(self) -> dict:

@@ -7,6 +7,7 @@ from pathlib import Path
 from futures_monitor.config import (
     AppConfig,
     ensure_runtime_config,
+    get_fixed_monitor_pool,
     load_config,
     resolve_runtime_config_path,
     save_config,
@@ -28,6 +29,8 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(cfg.timezone, "Asia/Shanghai")
         self.assertTrue(cfg.strict_real_mode)
         self.assertEqual(cfg.ui_refresh_ms, 800)
+        self.assertEqual(cfg.probe_target_count, 3)
+        self.assertEqual(cfg.probe_distance_ratio, 0.2)
 
     def test_runtime_config_initializes_from_template_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -145,6 +148,8 @@ class TestConfig(unittest.TestCase):
                 selection_symbols=["SHFE.rb", "DCE.i"],
                 take_profit_pct=0.2,
                 stop_loss_pct=0.3,
+                probe_target_count=4,
+                probe_distance_ratio=0.35,
             )
             save_config(cfg, str(p))
             loaded = load_config(str(p))
@@ -156,6 +161,8 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(saved["selection_symbols"], ["SHFE.rb", "DCE.i"])
         self.assertEqual(loaded.take_profit_pct, 0.2)
         self.assertEqual(loaded.stop_loss_pct, 0.3)
+        self.assertEqual(loaded.probe_target_count, 4)
+        self.assertEqual(loaded.probe_distance_ratio, 0.35)
 
     def test_legacy_all_text_is_migrated_without_pseudo_symbol(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -207,6 +214,17 @@ class TestConfig(unittest.TestCase):
         }
         actual = {item['value']: item['name'] for item in SYMBOL_CANDIDATE_DEFINITIONS}
         self.assertEqual({key: actual.get(key) for key in expected_names}, expected_names)
+
+    def test_fixed_monitor_pool_uses_candidate_definitions_for_all_and_exchange_modes(self) -> None:
+        all_pool = get_fixed_monitor_pool('all')
+        dce_pool = get_fixed_monitor_pool('exchange', ['DCE'])
+
+        self.assertLessEqual(len(all_pool), 100)
+        self.assertIn('SHFE.rb', all_pool)
+        self.assertIn('DCE.i', all_pool)
+        self.assertTrue(all(symbol.startswith('DCE.') for symbol in dce_pool))
+        self.assertIn('DCE.i', dce_pool)
+        self.assertNotIn('SHFE.rb', dce_pool)
 
     def test_symbol_candidate_definitions_cover_latest_cn_name_backfill_batch(self) -> None:
         from futures_monitor.config import SYMBOL_CANDIDATE_DEFINITIONS

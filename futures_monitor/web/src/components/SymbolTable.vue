@@ -25,11 +25,30 @@ functions:
       height="100%"
       v-loading="store.connectionStatus === 'connecting'"
     >
-      <el-table-column label="品种" min-width="180" fixed>
+      <el-table-column label="品种" min-width="260" fixed>
         <template #default="{ row }">
           <div class="symbol-cell">
-            <span class="symbol-cell__name">{{ row.name || row.displaySymbol || row.symbol }}</span>
-            <span class="symbol-cell__meta">{{ row.displaySymbol || row.symbol }}</span>
+            <div class="symbol-cell__header">
+              <div class="symbol-cell__identity">
+                <span class="symbol-cell__name">{{ row.name || row.displaySymbol || row.symbol }}</span>
+                <span class="symbol-cell__meta">{{ row.displaySymbol || row.symbol }}</span>
+              </div>
+              <div class="probe-icons" v-if="row.probeIconLevel > 0 && row.status === 'MONITORING'">
+                <span v-for="level in row.probeIconLevel" :key="level" class="probe-icons__dot"></span>
+              </div>
+            </div>
+            <div class="probe-panel" v-if="row.status === 'MONITORING' || row.status === 'BREAKOUT_DETECTED'">
+              <div class="probe-panel__topline">
+                <span class="probe-panel__text">{{ row.probeStateText || getStatusText(row.status) }}</span>
+                <span class="probe-panel__count" v-if="row.probeCount > 0">{{ row.probeCount }} / {{ probeTargetCount }}</span>
+              </div>
+              <el-progress
+                :percentage="normalizeProgress(row.probeProgress)"
+                :stroke-width="6"
+                :show-text="false"
+                :color="row.status === 'BREAKOUT_DETECTED' ? '#f56c6c' : '#e6a23c'"
+              />
+            </div>
           </div>
         </template>
       </el-table-column>
@@ -37,7 +56,7 @@ functions:
       <el-table-column prop="status" label="状态" width="120">
         <template #default="{ row }">
           <el-tag :type="getStatusType(row.status)" size="small">
-            {{ getStatusText(row.status) }}
+            {{ row.probeStateText && row.status === 'BREAKOUT_DETECTED' ? row.probeStateText : getStatusText(row.status) }}
           </el-tag>
         </template>
       </el-table-column>
@@ -107,10 +126,12 @@ functions:
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useMonitorStore, type SymbolStatus } from '../stores/monitor'
 
 const store = useMonitorStore()
+const probeTargetCount = computed(() => store.config?.probe_target_count ?? 3)
 
 function getStatusType(status: SymbolStatus): string {
   const typeMap: Record<SymbolStatus, string> = {
@@ -135,6 +156,10 @@ function getStatusText(status: SymbolStatus): string {
 function formatPrice(price: number | null): string {
   if (price === null || price === undefined) return '-'
   return price.toFixed(2)
+}
+
+function normalizeProgress(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value || 0)))
 }
 
 async function handleMarkBought(symbol: string) {
@@ -181,8 +206,22 @@ async function handleMarkBought(symbol: string) {
 .symbol-cell {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
   line-height: 1.4;
+}
+
+.symbol-cell__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.symbol-cell__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .symbol-cell__name {
@@ -192,6 +231,44 @@ async function handleMarkBought(symbol: string) {
 
 .symbol-cell__meta {
   font-size: 12px;
+  color: #909399;
+}
+
+.probe-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.probe-icons__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #e6a23c;
+  box-shadow: 0 0 0 2px rgba(230, 162, 60, 0.15);
+}
+
+.probe-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.probe-panel__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #606266;
+}
+
+.probe-panel__text {
+  color: #8a5b00;
+}
+
+.probe-panel__count {
   color: #909399;
 }
 

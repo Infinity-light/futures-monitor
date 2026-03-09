@@ -25,7 +25,13 @@ _TQ_AUTH_GUIDANCE = (
     "不是期货实盘账号，也不是普通模拟交易编号。"
 )
 
-from futures_monitor.config import ALL_SYMBOL_ALIASES, ALL_SYMBOL_LABEL, SYMBOL_CANDIDATE_DEFINITIONS, is_all_selection_token
+from futures_monitor.config import (
+    ALL_SYMBOL_ALIASES,
+    ALL_SYMBOL_LABEL,
+    SYMBOL_CANDIDATE_DEFINITIONS,
+    get_fixed_monitor_pool,
+    is_all_selection_token,
+)
 from futures_monitor.strategy.breakout import Kline
 
 
@@ -157,32 +163,20 @@ class MarketDataProvider:
     ) -> list[str]:
         normalized = self._normalize_symbols(symbols)
         if selection_mode == "all" or self._is_all_symbols_request(normalized):
-            return ["SHFE.rb", "DCE.i", "CZCE.TA"]
+            return get_fixed_monitor_pool("all")
         if selection_mode == "exchange":
-            exchange_map = {
-                "SHFE": ["SHFE.rb", "SHFE.au"],
-                "DCE": ["DCE.i", "DCE.m"],
-                "CZCE": ["CZCE.TA", "CZCE.MA"],
-                "CFFEX": ["CFFEX.IF", "CFFEX.T"],
-                "INE": ["INE.sc", "INE.nr"],
-                "GFEX": ["GFEX.si", "GFEX.lc"],
-            }
-            resolved: list[str] = []
-            for exchange in selection_exchanges or []:
-                resolved.extend(exchange_map.get(exchange, []))
-            return self._dedupe_symbols(resolved)
+            return get_fixed_monitor_pool("exchange", selection_exchanges)
         filtered = [symbol for symbol in normalized if not is_all_selection_token(symbol)]
         resolved = self._dedupe_instrument_ids(filtered)
         return resolved or ["SHFE.rb2410"]
 
-    def _resolve_all_real_symbols(self, api, exchange_id: str | None = None) -> list[str]:
-        query_kwargs = {"exchange_id": exchange_id} if exchange_id else {}
-        cont_symbols = self._dedupe_symbols(self._normalize_symbols(list(api.query_cont_quotes(**query_kwargs))))
-        if cont_symbols:
-            return cont_symbols
-
-        futures = list(api.query_quotes(ins_class="FUTURE", expired=False, **query_kwargs))
-        return self._dedupe_symbols(self._normalize_symbols(futures))
+    def _resolve_real_pool_symbols(self, api, candidates: list[str]) -> list[str]:
+        resolved: list[str] = []
+        for symbol in candidates:
+            resolved_symbol = self._resolve_quote_symbol(api, symbol)
+            if resolved_symbol:
+                resolved.append(resolved_symbol)
+        return self._dedupe_symbols(self._normalize_symbols(resolved))
 
     def _resolve_real_symbols(
         self,
@@ -194,19 +188,18 @@ class MarketDataProvider:
         normalized = self._normalize_symbols(symbols)
         exchanges = [exchange for exchange in (selection_exchanges or []) if exchange]
         if selection_mode == "exchange":
-            resolved: list[str] = []
-            for exchange in exchanges:
-                resolved.extend(self._resolve_all_real_symbols(api, exchange_id=exchange))
-            resolved = self._dedupe_symbols(resolved)
+            candidates = get_fixed_monitor_pool("exchange", exchanges)
+            resolved = self._resolve_real_pool_symbols(api, candidates)
             if not resolved:
-                raise RuntimeError(f"交易所 {', '.join(exchanges)} 未查询到任何有效期货合约")
-            self._logger.info("交易所 %s 请求已解析为 %d 个有效合约", ", ".join(exchanges), len(resolved))
+                raise RuntimeError(f"交易所 {', '.join(exchanges)} 固定主力池未解析到任何有效合约")
+            self._logger.info("交易所 %s 固定主力池已解析为 %d 个有效合约", ", ".join(exchanges), len(resolved))
             return resolved
         if selection_mode == "all" or self._is_all_symbols_request(normalized):
-            resolved = self._resolve_all_real_symbols(api)
+            candidates = get_fixed_monitor_pool("all")
+            resolved = self._resolve_real_pool_symbols(api, candidates)
             if not resolved:
-                raise RuntimeError("ALL/全部 请求未查询到任何有效期货合约")
-            self._logger.info("ALL/全部 请求已解析为 %d 个有效合约", len(resolved))
+                raise RuntimeError("固定主力池未解析到任何有效合约")
+            self._logger.info("固定主力池已解析为 %d 个有效合约", len(resolved))
             return resolved
         filtered = [symbol for symbol in normalized if not is_all_selection_token(symbol)]
         mapping = self._build_custom_symbol_mapping(filtered)
