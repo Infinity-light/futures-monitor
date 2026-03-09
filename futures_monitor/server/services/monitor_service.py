@@ -22,7 +22,7 @@ exports:
   - MonitorService
 status: IMPLEMENTED
 functions:
-  - MonitorService.start(symbols: list[str]) -> dict
+  - MonitorService.start(symbols: list[str], selection_mode: str | None = None, selection_exchanges: list[str] | None = None) -> dict
   - MonitorService.stop() -> dict
   - MonitorService.get_status() -> MonitorStatus
   - MonitorService.mark_bought(symbol: str) -> dict
@@ -59,7 +59,6 @@ if TYPE_CHECKING:
     from futures_monitor.server.ws.hub import ConnectionHub
 
 
-_ALL_SYMBOL_ALIASES = {"ALL", "全部"}
 _CONNECTION_STATUS_MAP = {
     "未连接": "disconnected",
     "已断开": "disconnected",
@@ -67,15 +66,6 @@ _CONNECTION_STATUS_MAP = {
     "已连接": "connected",
     "连接失败": "error",
 }
-
-
-def _is_all_symbols_request(symbols: list[str]) -> bool:
-    """Check if the request is for all symbols."""
-    for symbol in symbols:
-        token = str(symbol).strip()
-        if token.upper() in _ALL_SYMBOL_ALIASES or token in _ALL_SYMBOL_ALIASES:
-            return True
-    return False
 
 
 def _to_local_dt(timestamp: float | int | str, timezone: str) -> datetime:
@@ -143,7 +133,9 @@ class MonitorService:
         self.machine_map: dict[str, StrategyStateMachine] = {}
         self.runtime_map: dict[str, dict] = {}
 
-        self.symbols: list[str] = self.config.symbols or ["SHFE.rb2410"]
+        self.symbols: list[str] = self.config.selection_symbols or ["SHFE.rb"]
+        self.selection_mode: str = self.config.selection_mode
+        self.selection_exchanges: list[str] = list(self.config.selection_exchanges)
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -176,7 +168,9 @@ class MonitorService:
         self.sms = SmsAlertSender(enabled=self.config.enable_sms)
         self.provider = MarketDataProvider(config=self.config, logger=self.logger)
         if not self._running:
-            self.symbols = self.config.symbols or ["SHFE.rb2410"]
+            self.symbols = self.config.selection_symbols or ["SHFE.rb"]
+            self.selection_mode = self.config.selection_mode
+            self.selection_exchanges = list(self.config.selection_exchanges)
         return self.config
 
     def _schedule_broadcast(self, event: dict) -> None:
@@ -203,27 +197,30 @@ class MonitorService:
             },
         )
 
-    def _emit_row(self, symbol: str) -> None:
-        """Emit a row update event."""
+    def _build_row_payload(self, symbol: str) -> dict:
         machine = self.machine_map.setdefault(symbol, StrategyStateMachine())
         runtime = self.runtime_map.setdefault(symbol, _build_runtime_state())
         latest = self.provider.get_latest_snapshot([symbol]).get(symbol)
+        metadata = self.provider.get_symbol_metadata(symbol)
+        return {
+            "symbol": symbol,
+            "display_symbol": metadata.get("display_symbol", symbol),
+            "name": metadata.get("name", ""),
+            "exchange": metadata.get("exchange", ""),
+            "status": machine.get_state(),
+            "last_price": None if latest is None else latest.close,
+            "day_high": runtime.get("day_high"),
+            "day_low": runtime.get("day_low"),
+            "breakout_price": runtime.get("breakout_price"),
+            "take_profit": runtime.get("take_profit_price"),
+            "stop_loss": runtime.get("stop_loss_price"),
+            "last_event": runtime.get("last_event", "-"),
+            "has_bought": machine.get_state() == HOLDING,
+        }
 
-        self._emit_event(
-            "row",
-            {
-                "symbol": symbol,
-                "status": machine.get_state(),
-                "last_price": None if latest is None else latest.close,
-                "day_high": runtime.get("day_high"),
-                "day_low": runtime.get("day_low"),
-                "breakout_price": runtime.get("breakout_price"),
-                "take_profit": runtime.get("take_profit_price"),
-                "stop_loss": runtime.get("stop_loss_price"),
-                "last_event": runtime.get("last_event", "-"),
-                "has_bought": machine.get_state() == HOLDING,
-            },
-        )
+    def _emit_row(self, symbol: str) -> None:
+        """Emit a row update event."""
+        self._emit_event("row", self._build_row_payload(symbol))
 
     def _emit_connection(self, status: str) -> None:
         """Emit connection status event."""
@@ -244,30 +241,45 @@ class MonitorService:
             self.runtime_map.setdefault(symbol, _build_runtime_state())
             self._emit_row(symbol)
 
-    def start(self, symbols: list[str]) -> dict:
+    def start(
+        self,
+        symbols: list[str],
+        selection_mode: str | None = None,
+        selection_exchanges: list[str] | None = None,
+    ) -> dict:
         """Start monitoring the specified symbols."""
         if self._thread and self._thread.is_alive():
             return {"success": False, "message": "监控已在运行中。"}
 
         self.reload_config()
-        selected = symbols or self.config.symbols or ["SHFE.rb2410"]
-        self.symbols = selected
-        is_all_request = _is_all_symbols_request(self.symbols)
-        if not is_all_request:
-            self._prepare_symbol_context(self.symbols)
+        selected_symbols = list(symbols) if symbols else list(self.config.selection_symbols)
+        self.symbols = selected_symbols or ["SHFE.rb"]
+        self.selection_mode = selection_mode or self.config.selection_mode
+        self.selection_exchanges = list(selection_exchanges or self.config.selection_exchanges)
+        if self.selection_mode != "custom":
+            self.symbols = []
+        self._prepare_symbol_context(self.symbols)
 
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._monitor_loop, name="monitor-thread", daemon=True)
         self._thread.start()
 
         self._emit_running(True)
-        if is_all_request:
-            msg = "启动监控: 全部品种（自动读取当前有效合约）"
+        if self.selection_mode == "all":
+            msg = "启动监控: 全部市场（自动读取当前有效合约）"
+        elif self.selection_mode == "exchange":
+            msg = f"启动监控: 交易所 {', '.join(self.selection_exchanges)}（自动读取当前有效合约）"
         else:
             msg = f"启动监控: {', '.join(self.symbols)}"
         self._emit_log(msg)
 
-        return {"success": True, "message": msg, "symbols": self.symbols}
+        return {
+            "success": True,
+            "message": msg,
+            "symbols": self.symbols,
+            "selection_mode": self.selection_mode,
+            "selection_exchanges": self.selection_exchanges,
+        }
 
     def stop(self) -> dict:
         """Stop monitoring."""
@@ -307,25 +319,14 @@ class MonitorService:
             runtime = self.runtime_map.get(symbol)
             if machine and runtime:
                 latest = self.provider.get_latest_snapshot([symbol]).get(symbol)
-                rows.append(
-                    SymbolRow(
-                        symbol=symbol,
-                        status=machine.get_state(),
-                        last_price=None if latest is None else latest.close,
-                        day_high=runtime.get("day_high"),
-                        day_low=runtime.get("day_low"),
-                        breakout_price=runtime.get("breakout_price"),
-                        take_profit=runtime.get("take_profit_price"),
-                        stop_loss=runtime.get("stop_loss_price"),
-                        last_event=runtime.get("last_event", "-"),
-                        has_bought=machine.get_state() == HOLDING,
-                    )
-                )
+                rows.append(SymbolRow(**self._build_row_payload(symbol)))
 
         return MonitorStatus(
             running=self._running,
             connection_status=self._connection_status,
             symbols=self.symbols,
+            selection_mode=self.selection_mode,
+            selection_exchanges=list(self.selection_exchanges),
             rows=rows,
             message="" if self._running else "监控未运行",
         )
@@ -440,11 +441,16 @@ class MonitorService:
             stream = self.provider.stream_1m_klines(
                 self.symbols,
                 stop_flag=self._stop_event.is_set,
+                selection_mode=self.selection_mode,
+                selection_exchanges=self.selection_exchanges,
             )
             self._emit_connection("已连接")
             for symbol, kline in stream:
                 if self._stop_event.is_set():
                     break
+                if symbol not in self.symbols:
+                    self.symbols.append(symbol)
+                    self._prepare_symbol_context([symbol])
                 self._process_tick(symbol, kline)
         except Exception as exc:
             self._emit_connection("连接失败")

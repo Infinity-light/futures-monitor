@@ -8,7 +8,7 @@
  * status: IMPLEMENTED
  * functions:
  *   - useMonitorStore() -> Store
- *   - startMonitor(symbols: string[]) -> Promise<void>
+ *   - startMonitor(payload) -> Promise<void>
  *   - stopMonitor() -> Promise<void>
  *   - markBought(symbol: string) -> Promise<void>
  *   - handleRowUpdate(data: SymbolRowData) -> void
@@ -24,7 +24,9 @@ import {
   updateConfig,
   type ConfigResponse,
   type ConfigUpdate,
-  type MonitorStatus
+  type MonitorStatus,
+  type MonitorStartRequest,
+  type SymbolCandidate
 } from '../services/api'
 
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 'error'
@@ -33,6 +35,9 @@ export type SymbolStatus = 'MONITORING' | 'BREAKOUT_DETECTED' | 'HOLDING' | 'STO
 
 export interface SymbolRow {
   symbol: string
+  displaySymbol: string
+  name: string
+  exchange: string
   status: SymbolStatus
   lastPrice: number | null
   dayHigh: number | null
@@ -52,6 +57,9 @@ export interface LogEntry {
 
 export interface SymbolRowData {
   symbol: string
+  display_symbol?: string
+  name?: string
+  exchange?: string
   status?: string
   last_price?: number | null
   day_high?: number | null
@@ -102,7 +110,8 @@ function normalizeSymbolStatus(status?: string): SymbolStatus {
 export const useMonitorStore = defineStore('monitor', {
   state: () => ({
     symbols: [] as string[],
-    symbolInput: '' as string,
+    selectionMode: 'all' as 'all' | 'exchange' | 'custom',
+    selectionExchanges: [] as string[],
     config: null as ConfigResponse | null,
     isRunning: false,
     connectionStatus: 'disconnected' as ConnectionStatus,
@@ -113,20 +122,28 @@ export const useMonitorStore = defineStore('monitor', {
   getters: {
     sortedSymbols(state): SymbolRow[] {
       const rows = Array.from(state.symbolData.values())
-      return rows.sort((a, b) => a.symbol.localeCompare(b.symbol))
+      return rows.sort((a, b) => {
+        const left = `${a.name || a.displaySymbol || a.symbol}-${a.symbol}`
+        const right = `${b.name || b.displaySymbol || b.symbol}-${b.symbol}`
+        return left.localeCompare(right)
+      })
     },
 
     activeSymbolCount(state): number {
       return Array.from(state.symbolData.values()).filter(
         row => row.status === 'MONITORING' || row.status === 'BREAKOUT_DETECTED' || row.status === 'HOLDING'
       ).length
+    },
+
+    symbolCandidates(state): SymbolCandidate[] {
+      return state.config?.symbol_candidates ?? []
     }
   },
 
   actions: {
-    async startMonitor(symbols: string[]): Promise<void> {
+    async startMonitor(request: MonitorStartRequest): Promise<void> {
       try {
-        const status = await controlMonitor('start', symbols)
+        const status = await controlMonitor('start', request)
         this.applyStatusSnapshot(status)
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
@@ -170,6 +187,9 @@ export const useMonitorStore = defineStore('monitor', {
       const existing = this.symbolData.get(data.symbol)
       const row: SymbolRow = {
         symbol: data.symbol,
+        displaySymbol: data.display_symbol ?? existing?.displaySymbol ?? data.symbol,
+        name: data.name ?? existing?.name ?? '',
+        exchange: data.exchange ?? existing?.exchange ?? '',
         status: normalizeSymbolStatus(data.status) || existing?.status || 'MONITORING',
         lastPrice: data.last_price ?? existing?.lastPrice ?? null,
         dayHigh: data.day_high ?? existing?.dayHigh ?? null,
@@ -207,6 +227,8 @@ export const useMonitorStore = defineStore('monitor', {
 
     async initialize(): Promise<void> {
       this.symbols = []
+      this.selectionMode = 'all'
+      this.selectionExchanges = []
       this.isRunning = false
       this.connectionStatus = 'disconnected'
       this.symbolData.clear()
@@ -219,7 +241,11 @@ export const useMonitorStore = defineStore('monitor', {
 
     setConfig(config: ConfigResponse): void {
       this.config = config
-      this.symbolInput = config.symbols.join('\n')
+      this.selectionMode = config.selection_mode
+      this.selectionExchanges = [...config.selection_exchanges]
+      if (!this.isRunning) {
+        this.symbols = [...config.selection_symbols]
+      }
     },
 
     async refreshConfig(): Promise<ConfigResponse> {
@@ -237,6 +263,8 @@ export const useMonitorStore = defineStore('monitor', {
     applyStatusSnapshot(status: MonitorStatus): void {
       this.isRunning = status.running
       this.symbols = status.symbols
+      this.selectionMode = status.selection_mode
+      this.selectionExchanges = [...status.selection_exchanges]
       this.connectionStatus = normalizeConnectionStatus(status.connection_status)
       this.symbolData = new Map()
       status.rows.forEach(row => this.handleRowUpdate(row))

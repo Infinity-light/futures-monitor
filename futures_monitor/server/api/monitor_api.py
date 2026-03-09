@@ -68,7 +68,11 @@ def control_monitor(
     """Control the monitor - start or stop monitoring."""
     try:
         if payload.action == "start":
-            result = service.start(payload.symbols)
+            result = service.start(
+                payload.symbols,
+                selection_mode=payload.selection_mode,
+                selection_exchanges=payload.selection_exchanges,
+            )
             if not result.get("success"):
                 detail = str(result.get("message", "启动监控失败"))
                 hint = _AUTH_HINT if "快期" in detail or "TqSdk" in detail or "认证" in detail else None

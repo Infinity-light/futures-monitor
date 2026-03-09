@@ -25,7 +25,14 @@ functions:
       height="100%"
       v-loading="store.connectionStatus === 'connecting'"
     >
-      <el-table-column prop="symbol" label="品种代码" width="120" fixed />
+      <el-table-column label="品种" min-width="180" fixed>
+        <template #default="{ row }">
+          <div class="symbol-cell">
+            <span class="symbol-cell__name">{{ row.name || row.displaySymbol || row.symbol }}</span>
+            <span class="symbol-cell__meta">{{ row.displaySymbol || row.symbol }}</span>
+          </div>
+        </template>
+      </el-table-column>
 
       <el-table-column prop="status" label="状态" width="120">
         <template #default="{ row }">
@@ -169,6 +176,23 @@ async function handleMarkBought(symbol: string) {
   flex: 1;
   overflow: hidden;
   padding: 0;
+}
+
+.symbol-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.4;
+}
+
+.symbol-cell__name {
+  color: #303133;
+  font-weight: 600;
+}
+
+.symbol-cell__meta {
+  font-size: 12px;
+  color: #909399;
 }
 
 .profit-text {

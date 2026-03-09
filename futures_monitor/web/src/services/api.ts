@@ -14,7 +14,7 @@
  *   - getMonitorStatus() -> Promise<MonitorStatus>
  *   - getConfig() -> Promise<ConfigResponse>
  *   - updateConfig(config) -> Promise<ConfigResponse>
- *   - controlMonitor(action, symbols?) -> Promise<MonitorStatus>
+ *   - controlMonitor(action, options?) -> Promise<MonitorStatus>
  *   - markBought(symbol) -> Promise<void>
  */
 
@@ -72,8 +72,20 @@ apiClient.interceptors.response.use(
   }
 )
 
+export interface SymbolCandidate {
+  value: string
+  code: string
+  name: string
+  exchange: string
+  category: string
+}
+
 export interface ConfigResponse {
   symbols: string[]
+  selection_mode: 'all' | 'exchange' | 'custom'
+  selection_exchanges: string[]
+  selection_symbols: string[]
+  symbol_candidates: SymbolCandidate[]
   take_profit_pct: number
   stop_loss_pct: number
   position_pct: number
@@ -90,6 +102,9 @@ export interface ConfigResponse {
 
 export interface ConfigUpdate {
   symbols?: string[]
+  selection_mode?: 'all' | 'exchange' | 'custom'
+  selection_exchanges?: string[]
+  selection_symbols?: string[]
   take_profit_pct?: number
   stop_loss_pct?: number
   position_pct?: number
@@ -106,6 +121,9 @@ export interface ConfigUpdate {
 
 export interface SymbolRow {
   symbol: string
+  display_symbol?: string
+  name?: string
+  exchange?: string
   status: string
   last_price: number | null
   day_high: number | null
@@ -120,9 +138,17 @@ export interface SymbolRow {
 export interface MonitorStatus {
   running: boolean
   symbols: string[]
+  selection_mode: 'all' | 'exchange' | 'custom'
+  selection_exchanges: string[]
   connection_status: string
   rows: SymbolRow[]
   message: string
+}
+
+export interface MonitorStartRequest {
+  symbols?: string[]
+  selection_mode?: 'all' | 'exchange' | 'custom'
+  selection_exchanges?: string[]
 }
 
 export async function getConfig(): Promise<ConfigResponse> {
@@ -142,9 +168,14 @@ export async function getMonitorStatus(): Promise<MonitorStatus> {
 
 export async function controlMonitor(
   action: 'start' | 'stop',
-  symbols?: string[]
+  request: MonitorStartRequest = {}
 ): Promise<MonitorStatus> {
-  const response = await apiClient.post<MonitorStatus>('/monitor/control', { action, symbols: symbols || [] })
+  const response = await apiClient.post<MonitorStatus>('/monitor/control', {
+    action,
+    symbols: request.symbols || [],
+    selection_mode: request.selection_mode || 'all',
+    selection_exchanges: request.selection_exchanges || []
+  })
   return response.data
 }
 

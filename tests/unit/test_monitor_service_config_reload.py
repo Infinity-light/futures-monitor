@@ -1,4 +1,3 @@
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,7 +13,9 @@ class TestMonitorServiceConfigReload(unittest.TestCase):
             config_path = Path(temp_dir) / 'config.json'
             save_config(
                 AppConfig(
-                    symbols=['SHFE.rb2405'],
+                    symbols=['SHFE.rb'],
+                    selection_mode='custom',
+                    selection_symbols=['SHFE.rb'],
                     tq_account='old-account',
                     tq_password='old-password',
                     use_real_market_data=False,
@@ -28,7 +29,9 @@ class TestMonitorServiceConfigReload(unittest.TestCase):
 
             save_config(
                 AppConfig(
-                    symbols=['DCE.i2405'],
+                    symbols=['ALL'],
+                    selection_mode='exchange',
+                    selection_exchanges=['DCE'],
                     tq_account='new-account',
                     tq_password='new-password',
                     use_real_market_data=True,
@@ -39,7 +42,7 @@ class TestMonitorServiceConfigReload(unittest.TestCase):
             )
 
             with patch.object(service, '_monitor_loop', return_value=None):
-                result = service.start([])
+                result = service.start([], selection_mode='exchange', selection_exchanges=['DCE'])
                 service._thread.join(timeout=1)
 
         self.assertTrue(result['success'])
@@ -47,9 +50,12 @@ class TestMonitorServiceConfigReload(unittest.TestCase):
         self.assertEqual(service.config.tq_password, 'new-password')
         self.assertTrue(service.config.use_real_market_data)
         self.assertFalse(service.config.strict_real_mode)
-        self.assertEqual(service.symbols, ['DCE.i2405'])
+        self.assertEqual(service.selection_mode, 'exchange')
+        self.assertEqual(service.selection_exchanges, ['DCE'])
+        self.assertEqual(service.symbols, [])
         self.assertIsNot(service.provider, original_provider)
         self.assertEqual(service.provider._config.tq_account, 'new-account')
+        self.assertEqual(service.provider.get_symbol_metadata('DCE.i2409')['name'], '铁矿石')
 
 
 if __name__ == '__main__':

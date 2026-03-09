@@ -21,17 +21,59 @@ functions:
 
       <div class="control-content">
         <div class="input-section">
-          <div class="input-label">
-            <span>监控品种</span>
-            <el-tag size="small" type="info">已解析: {{ parsedSymbolCount }} 个</el-tag>
+          <div class="input-label input-label--top">
+            <div>
+              <span>监控品种</span>
+              <div class="field-help">名称主、代码辅；保存与启动只提交程序值，不再手输 ALL。</div>
+            </div>
+            <el-tag size="small" type="info">当前将启动 {{ selectionSummary }}</el-tag>
           </div>
-          <el-input
-            v-model="symbolInput"
-            type="textarea"
-            :rows="3"
-            placeholder="输入品种代码，每行一个，或输入 ALL&#10;例如：&#10;RB2505&#10;TA2505"
-            :disabled="store.isRunning"
-          />
+
+          <el-radio-group v-model="controlSelectionMode" :disabled="store.isRunning" class="selection-mode-group">
+            <el-radio-button label="all">全部市场</el-radio-button>
+            <el-radio-button label="exchange">按交易所</el-radio-button>
+            <el-radio-button label="custom">自定义</el-radio-button>
+          </el-radio-group>
+
+          <div v-if="controlSelectionMode === 'exchange'" class="selector-panel">
+            <el-checkbox-group v-model="controlSelectionExchanges" :disabled="store.isRunning" class="exchange-grid">
+              <el-checkbox v-for="item in exchangeOptions" :key="item.value" :label="item.value">
+                {{ item.label }}
+              </el-checkbox>
+            </el-checkbox-group>
+          </div>
+
+          <div v-else-if="controlSelectionMode === 'custom'" class="selector-panel">
+            <el-select
+              v-model="controlSelectionSymbols"
+              multiple
+              filterable
+              collapse-tags
+              collapse-tags-tooltip
+              :max-collapse-tags="2"
+              placeholder="搜索并选择品种"
+              :disabled="store.isRunning"
+              class="symbol-select"
+            >
+              <el-option
+                v-for="candidate in filteredCandidates"
+                :key="candidate.value"
+                :label="formatCandidateLabel(candidate)"
+                :value="candidate.value"
+              >
+                <div class="candidate-option">
+                  <span class="candidate-option__name">{{ candidate.name }}</span>
+                  <span class="candidate-option__meta">{{ candidate.code }} · {{ exchangeName(candidate.exchange) }}</span>
+                </div>
+              </el-option>
+            </el-select>
+            <div class="selected-preview" v-if="selectedControlCandidates.length > 0">
+              <el-tag v-for="candidate in selectedControlCandidates" :key="candidate.value" size="small" class="preview-tag">
+                {{ candidate.name }}（{{ candidate.code }}）
+              </el-tag>
+            </div>
+          </div>
+
           <div class="field-help">启动监控时将使用当前配置中的认证信息、行情模式和风控参数。</div>
         </div>
 
@@ -73,7 +115,7 @@ functions:
               <span>监控配置</span>
               <el-tag v-if="store.config?.tq_account" size="small" type="success">已加载配置</el-tag>
             </div>
-            <div class="card-subtitle">认证信息、行情模式、风控参数和 symbols 在此集中维护，避免隐藏入口。</div>
+            <div class="card-subtitle">认证信息、行情模式、风控参数和品种选择在此集中维护，避免隐藏入口。</div>
           </div>
           <div class="config-actions header-actions">
             <el-button :loading="isRefreshingConfig" @click="handleRefreshConfig">刷新配置</el-button>
@@ -167,17 +209,62 @@ functions:
 
         <section class="config-section">
           <div class="section-heading">
-            <h3>监控 symbols</h3>
-            <p>支持逐行填写合约代码，也支持输入 ALL 自动解析当前有效合约。</p>
+            <h3>品种选择</h3>
+            <p>使用结构化选择模式；展示为中文名（代码），保存为程序值，兼容旧版 symbols 配置。</p>
           </div>
-          <el-form-item label="symbols 列表">
-            <el-input
-              v-model="form.symbolsText"
-              type="textarea"
-              :rows="5"
-              placeholder="每行一个品种代码，或输入 ALL"
-            />
+
+          <el-form-item label="选择模式">
+            <el-radio-group v-model="form.selection_mode" class="selection-mode-group">
+              <el-radio-button label="all">全部市场</el-radio-button>
+              <el-radio-button label="exchange">按交易所</el-radio-button>
+              <el-radio-button label="custom">自定义</el-radio-button>
+            </el-radio-group>
           </el-form-item>
+
+          <el-form-item v-if="form.selection_mode === 'exchange'" label="交易所范围">
+            <el-checkbox-group v-model="form.selection_exchanges" class="exchange-grid">
+              <el-checkbox v-for="item in exchangeOptions" :key="item.value" :label="item.value">
+                {{ item.label }}
+              </el-checkbox>
+            </el-checkbox-group>
+          </el-form-item>
+
+          <el-form-item v-if="form.selection_mode === 'custom'" label="自定义品种">
+            <el-select
+              v-model="form.selection_symbols"
+              multiple
+              filterable
+              collapse-tags
+              collapse-tags-tooltip
+              :max-collapse-tags="3"
+              placeholder="搜索并选择品种"
+              class="symbol-select"
+            >
+              <el-option
+                v-for="candidate in filteredCandidates"
+                :key="candidate.value"
+                :label="formatCandidateLabel(candidate)"
+                :value="candidate.value"
+              >
+                <div class="candidate-option">
+                  <span class="candidate-option__name">{{ candidate.name }}</span>
+                  <span class="candidate-option__meta">{{ candidate.code }} · {{ exchangeName(candidate.exchange) }}</span>
+                </div>
+              </el-option>
+            </el-select>
+            <div class="selected-preview" v-if="selectedFormCandidates.length > 0">
+              <el-tag v-for="candidate in selectedFormCandidates" :key="candidate.value" size="small" class="preview-tag">
+                {{ candidate.name }}（{{ candidate.code }}）
+              </el-tag>
+            </div>
+          </el-form-item>
+
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            :title="`当前配置摘要：${configSelectionSummary}`"
+          />
         </section>
 
         <div class="config-actions footer-actions">
@@ -194,6 +281,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useMonitorStore } from '../stores/monitor'
+import type { SymbolCandidate } from '../services/api'
 
 const store = useMonitorStore()
 
@@ -202,76 +290,163 @@ const isStopping = ref(false)
 const isSavingConfig = ref(false)
 const isRefreshingConfig = ref(false)
 
+const exchangeOptions = [
+  { value: 'SHFE', label: '上期所 SHFE' },
+  { value: 'DCE', label: '大商所 DCE' },
+  { value: 'CZCE', label: '郑商所 CZCE' },
+  { value: 'CFFEX', label: '中金所 CFFEX' },
+  { value: 'INE', label: '上期能源 INE' },
+  { value: 'GFEX', label: '广期所 GFEX' }
+]
+
 const form = reactive({
   tq_account: '',
   tq_password: '',
-  symbolsText: '',
+  selection_mode: 'all' as 'all' | 'exchange' | 'custom',
+  selection_exchanges: [] as string[],
+  selection_symbols: [] as string[],
   take_profit_pct: 0.5,
   stop_loss_pct: 0.5,
   use_real_market_data: false,
   strict_real_mode: true
 })
 
+const controlSelectionMode = ref<'all' | 'exchange' | 'custom'>('all')
+const controlSelectionExchanges = ref<string[]>([])
+const controlSelectionSymbols = ref<string[]>([])
+
+function exchangeName(exchange: string): string {
+  return exchangeOptions.find(item => item.value === exchange)?.label ?? exchange
+}
+
+function formatCandidateLabel(candidate: SymbolCandidate): string {
+  return `${candidate.name}（${candidate.code}）`
+}
+
+const candidateMap = computed(() => {
+  return new Map(store.symbolCandidates.map(candidate => [candidate.value, candidate]))
+})
+
+const filteredCandidates = computed(() => {
+  if (form.selection_mode !== 'custom' && controlSelectionMode.value !== 'custom') {
+    return store.symbolCandidates
+  }
+
+  const exchanges = form.selection_mode === 'custom'
+    ? form.selection_exchanges
+    : controlSelectionExchanges.value
+
+  if (!exchanges.length) {
+    return store.symbolCandidates
+  }
+  return store.symbolCandidates.filter(candidate => exchanges.includes(candidate.exchange))
+})
+
+const selectedFormCandidates = computed(() => {
+  return form.selection_symbols
+    .map(value => candidateMap.value.get(value))
+    .filter((candidate): candidate is SymbolCandidate => Boolean(candidate))
+})
+
+const selectedControlCandidates = computed(() => {
+  return controlSelectionSymbols.value
+    .map(value => candidateMap.value.get(value))
+    .filter((candidate): candidate is SymbolCandidate => Boolean(candidate))
+})
+
+function summarizeSelection(mode: 'all' | 'exchange' | 'custom', exchanges: string[], symbols: string[]): string {
+  if (mode === 'all') {
+    return '全部市场'
+  }
+  if (mode === 'exchange') {
+    return exchanges.length ? `交易所：${exchanges.map(exchangeName).join('、')}` : '请选择至少一个交易所'
+  }
+  if (symbols.length === 0) {
+    return '请选择至少一个品种'
+  }
+  return symbols
+    .map(value => candidateMap.value.get(value))
+    .filter((candidate): candidate is SymbolCandidate => Boolean(candidate))
+    .map(candidate => `${candidate.name}（${candidate.code}）`)
+    .join('、')
+}
+
+const selectionSummary = computed(() => summarizeSelection(
+  controlSelectionMode.value,
+  controlSelectionExchanges.value,
+  controlSelectionSymbols.value
+))
+
+const configSelectionSummary = computed(() => summarizeSelection(
+  form.selection_mode,
+  form.selection_exchanges,
+  form.selection_symbols
+))
+
 function syncFormFromStore(): void {
   form.tq_account = store.config?.tq_account ?? ''
   form.tq_password = store.config?.tq_password ?? ''
-  form.symbolsText = store.config?.symbols.join('\n') ?? ''
+  form.selection_mode = store.config?.selection_mode ?? 'all'
+  form.selection_exchanges = [...(store.config?.selection_exchanges ?? [])]
+  form.selection_symbols = [...(store.config?.selection_symbols ?? [])]
   form.take_profit_pct = store.config?.take_profit_pct ?? 0.5
   form.stop_loss_pct = store.config?.stop_loss_pct ?? 0.5
   form.use_real_market_data = store.config?.use_real_market_data ?? false
   form.strict_real_mode = store.config?.strict_real_mode ?? true
+
+  controlSelectionMode.value = store.selectionMode
+  controlSelectionExchanges.value = [...store.selectionExchanges]
+  controlSelectionSymbols.value = [...(store.selectionMode === 'custom' ? store.symbols : store.config?.selection_symbols ?? [])]
 }
 
 watch(() => store.config, syncFormFromStore, { immediate: true })
-
-const symbolInput = computed({
-  get: () => store.symbolInput,
-  set: (value: string) => {
-    store.symbolInput = value
+watch(controlSelectionMode, mode => {
+  if (mode !== 'exchange') {
+    controlSelectionExchanges.value = []
+  }
+  if (mode !== 'custom') {
+    controlSelectionSymbols.value = []
+  }
+})
+watch(() => form.selection_mode, mode => {
+  if (mode !== 'exchange') {
+    form.selection_exchanges = []
+  }
+  if (mode !== 'custom') {
+    form.selection_symbols = []
   }
 })
 
-const parsedSymbols = computed(() => {
-  const input = symbolInput.value.trim()
-  if (!input) {
-    return []
+const canStart = computed(() => {
+  if (store.isRunning) {
+    return false
   }
-  if (input.toUpperCase() === 'ALL') {
-    return ['ALL']
+  if (controlSelectionMode.value === 'all') {
+    return true
   }
-  return input
-    .split('\n')
-    .map(s => s.trim().toUpperCase())
-    .filter(s => s.length > 0)
+  if (controlSelectionMode.value === 'exchange') {
+    return controlSelectionExchanges.value.length > 0
+  }
+  return controlSelectionSymbols.value.length > 0
 })
 
-const parsedConfigSymbols = computed(() => {
-  const input = form.symbolsText.trim()
-  if (!input) {
-    return []
+function buildStartPayload() {
+  return {
+    selection_mode: controlSelectionMode.value,
+    selection_exchanges: [...controlSelectionExchanges.value],
+    symbols: controlSelectionMode.value === 'custom' ? [...controlSelectionSymbols.value] : []
   }
-  if (input.toUpperCase() === 'ALL') {
-    return ['ALL']
-  }
-  return input
-    .split('\n')
-    .map(s => s.trim().toUpperCase())
-    .filter(s => s.length > 0)
-})
-
-const parsedSymbolCount = computed(() => parsedSymbols.value.length)
-
-const canStart = computed(() => parsedSymbolCount.value > 0 && !store.isRunning)
+}
 
 async function handleStart() {
-  if (parsedSymbols.value.length === 0) {
-    ElMessage.warning('请输入至少一个品种代码')
+  if (!canStart.value) {
+    ElMessage.warning('请先完成品种选择')
     return
   }
 
   isStarting.value = true
   try {
-    await store.startMonitor(parsedSymbols.value)
+    await store.startMonitor(buildStartPayload())
     ElMessage.success('监控已启动')
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
@@ -307,12 +482,24 @@ async function handleRefreshConfig() {
 }
 
 async function handleSaveConfig() {
+  if (form.selection_mode === 'exchange' && form.selection_exchanges.length === 0) {
+    ElMessage.warning('请选择至少一个交易所')
+    return
+  }
+  if (form.selection_mode === 'custom' && form.selection_symbols.length === 0) {
+    ElMessage.warning('请选择至少一个品种')
+    return
+  }
+
   isSavingConfig.value = true
   try {
     await store.saveConfig({
       tq_account: form.tq_account.trim(),
       tq_password: form.tq_password,
-      symbols: parsedConfigSymbols.value,
+      selection_mode: form.selection_mode,
+      selection_exchanges: [...form.selection_exchanges],
+      selection_symbols: [...form.selection_symbols],
+      symbols: form.selection_mode === 'custom' ? [...form.selection_symbols] : [],
       take_profit_pct: form.take_profit_pct,
       stop_loss_pct: form.stop_loss_pct,
       use_real_market_data: form.use_real_market_data,
@@ -376,7 +563,7 @@ async function handleSaveConfig() {
 .input-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .input-label {
@@ -385,6 +572,10 @@ async function handleSaveConfig() {
   align-items: center;
   font-size: 14px;
   color: #606266;
+}
+
+.input-label--top {
+  align-items: flex-start;
 }
 
 .field-help {
@@ -473,6 +664,53 @@ async function handleSaveConfig() {
   color: #909399;
 }
 
+.selection-mode-group {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.selector-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.exchange-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.symbol-select {
+  width: 100%;
+}
+
+.candidate-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.4;
+}
+
+.candidate-option__name {
+  color: #303133;
+}
+
+.candidate-option__meta {
+  font-size: 12px;
+  color: #909399;
+}
+
+.selected-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.preview-tag {
+  max-width: 100%;
+}
+
 :deep(.el-form-item) {
   margin-bottom: 0;
 }
@@ -482,7 +720,8 @@ async function handleSaveConfig() {
   .card-header,
   .setting-card__header,
   .stats-section,
-  .config-title-row {
+  .config-title-row,
+  .input-label {
     flex-direction: column;
     align-items: flex-start;
   }
@@ -497,7 +736,8 @@ async function handleSaveConfig() {
     flex: 1;
   }
 
-  .two-columns {
+  .two-columns,
+  .exchange-grid {
     grid-template-columns: 1fr;
   }
 }

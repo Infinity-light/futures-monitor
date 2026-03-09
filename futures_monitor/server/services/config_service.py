@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from futures_monitor.config import AppConfig, load_config, save_config
+from futures_monitor.config import AppConfig, SYMBOL_CANDIDATE_DEFINITIONS, load_config, save_config
 
 if TYPE_CHECKING:
     from futures_monitor.server.schemas import ConfigDTO
@@ -32,6 +32,17 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+_EXCHANGE_NAMES = {
+    "SHFE": "上期所",
+    "DCE": "大商所",
+    "CZCE": "郑商所",
+    "CFFEX": "中金所",
+    "INE": "上期能源",
+    "GFEX": "广期所",
+}
+
+_SYMBOL_CANDIDATES = SYMBOL_CANDIDATE_DEFINITIONS
 
 
 class ConfigService:
@@ -45,6 +56,27 @@ class ConfigService:
         """Attach the monitor service so config saves can refresh runtime state."""
         self._monitor_service = monitor_service
 
+    def _build_symbol_candidates(self) -> list:
+        from futures_monitor.server.schemas import SymbolCandidate
+
+        return [
+            SymbolCandidate(
+                value=item["value"],
+                code=item["code"],
+                name=item["name"],
+                exchange=item["exchange"],
+                category=_EXCHANGE_NAMES.get(item["exchange"], item["exchange"]),
+            )
+            for item in _SYMBOL_CANDIDATES
+        ]
+
+    def _with_candidates(self, dto: "ConfigDTO") -> "ConfigDTO":
+        dto.symbol_candidates = self._build_symbol_candidates()
+        return dto
+
+    def get_symbol_candidates(self) -> list:
+        return self._build_symbol_candidates()
+
     @staticmethod
     def to_dto(config: AppConfig) -> "ConfigDTO":
         """Convert AppConfig to ConfigDTO."""
@@ -52,6 +84,9 @@ class ConfigService:
 
         return ConfigDTO(
             symbols=list(config.symbols) if config.symbols else [],
+            selection_mode=config.selection_mode,
+            selection_exchanges=list(config.selection_exchanges) if config.selection_exchanges else [],
+            selection_symbols=list(config.selection_symbols) if config.selection_symbols else [],
             take_profit_pct=config.take_profit_pct,
             stop_loss_pct=config.stop_loss_pct,
             position_pct=config.position_pct,
@@ -71,6 +106,9 @@ class ConfigService:
         """Convert ConfigDTO to AppConfig."""
         return AppConfig(
             symbols=list(dto.symbols) if dto.symbols else [],
+            selection_mode=dto.selection_mode,
+            selection_exchanges=list(dto.selection_exchanges) if dto.selection_exchanges else [],
+            selection_symbols=list(dto.selection_symbols) if dto.selection_symbols else [],
             take_profit_pct=dto.take_profit_pct,
             stop_loss_pct=dto.stop_loss_pct,
             position_pct=dto.position_pct,
@@ -89,25 +127,14 @@ class ConfigService:
         """Load configuration from file and return as DTO."""
         try:
             config = load_config(self._config_path)
-            logger.info(f"Configuration loaded from {self._config_path}")
-            return self.to_dto(config)
+            logger.info("Configuration loaded from %s", self._config_path)
+            return self._with_candidates(self.to_dto(config))
         except Exception as exc:
-            logger.error(f"Failed to load config: {exc}")
-            # Return default config on error
-            return self.to_dto(AppConfig())
+            logger.error("Failed to load config: %s", exc)
+            return self._with_candidates(self.to_dto(AppConfig()))
 
     def update_config(self, payload: "ConfigDTO") -> "ConfigDTO":
-        """Save configuration to file and refresh runtime consumers.
-
-        Args:
-            payload: New configuration values.
-
-        Returns:
-            ConfigDTO with saved configuration.
-
-        Note:
-            Password is not logged for security reasons.
-        """
+        """Save configuration to file and refresh runtime consumers."""
         try:
             config = self.from_dto(payload)
             save_config(config, self._config_path)
@@ -116,15 +143,13 @@ class ConfigService:
                 self._monitor_service.reload_config(config)
 
             log_payload = payload.model_dump_masked()
-            logger.info(f"Configuration saved to {self._config_path}: {log_payload}")
-
-            return self.to_dto(config)
+            logger.info("Configuration saved to %s: %s", self._config_path, log_payload)
+            return self._with_candidates(self.to_dto(config))
         except Exception as exc:
-            logger.error(f"Failed to save config: {exc}")
+            logger.error("Failed to save config: %s", exc)
             raise
 
 
-# Global singleton instance
 _config_service_instance: ConfigService | None = None
 
 

@@ -6,23 +6,81 @@ exports:
   - AppConfig
   - load_config
   - save_config
+  - normalize_selection_mode
+  - normalize_selection_exchanges
+  - normalize_selection_symbols
+  - derive_legacy_symbols
+  - is_all_selection_token
+  - ALL_SYMBOL_LABEL
+  - ALL_SYMBOL_ALIASES
+  - SUPPORTED_EXCHANGES
 status: IMPLEMENTED
 functions:
   - load_config(path: str = "futures_monitor/config.json") -> AppConfig
   - save_config(config: AppConfig, path: str = "futures_monitor/config.json") -> str
+  - normalize_selection_mode(value: object, symbols: list[str] | None = None, exchanges: list[str] | None = None) -> str
+  - normalize_selection_exchanges(values: object) -> list[str]
+  - normalize_selection_symbols(values: object) -> list[str]
+  - derive_legacy_symbols(selection_mode: str, selection_symbols: list[str]) -> list[str]
+  - is_all_selection_token(value: object) -> bool
 ---
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
+
+
+ALL_SYMBOL_LABEL = "ALL 全部品种（自动读取当前有效合约）"
+ALL_SYMBOL_ALIASES = {"ALL", "全部", ALL_SYMBOL_LABEL}
+SUPPORTED_SELECTION_MODES = {"all", "exchange", "custom"}
+SUPPORTED_EXCHANGES = {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"}
+SYMBOL_CANDIDATE_DEFINITIONS = [
+    {"value": "SHFE.rb", "code": "SHFE.rb", "name": "螺纹钢", "exchange": "SHFE"},
+    {"value": "SHFE.hc", "code": "SHFE.hc", "name": "热轧卷板", "exchange": "SHFE"},
+    {"value": "SHFE.fu", "code": "SHFE.fu", "name": "燃料油", "exchange": "SHFE"},
+    {"value": "SHFE.bu", "code": "SHFE.bu", "name": "沥青", "exchange": "SHFE"},
+    {"value": "SHFE.au", "code": "SHFE.au", "name": "黄金", "exchange": "SHFE"},
+    {"value": "SHFE.ag", "code": "SHFE.ag", "name": "白银", "exchange": "SHFE"},
+    {"value": "SHFE.cu", "code": "SHFE.cu", "name": "沪铜", "exchange": "SHFE"},
+    {"value": "SHFE.al", "code": "SHFE.al", "name": "沪铝", "exchange": "SHFE"},
+    {"value": "SHFE.zn", "code": "SHFE.zn", "name": "沪锌", "exchange": "SHFE"},
+    {"value": "DCE.i", "code": "DCE.i", "name": "铁矿石", "exchange": "DCE"},
+    {"value": "DCE.m", "code": "DCE.m", "name": "豆粕", "exchange": "DCE"},
+    {"value": "DCE.y", "code": "DCE.y", "name": "豆油", "exchange": "DCE"},
+    {"value": "DCE.a", "code": "DCE.a", "name": "豆一", "exchange": "DCE"},
+    {"value": "DCE.c", "code": "DCE.c", "name": "玉米", "exchange": "DCE"},
+    {"value": "DCE.cs", "code": "DCE.cs", "name": "玉米淀粉", "exchange": "DCE"},
+    {"value": "DCE.eg", "code": "DCE.eg", "name": "乙二醇", "exchange": "DCE"},
+    {"value": "DCE.pp", "code": "DCE.pp", "name": "聚丙烯", "exchange": "DCE"},
+    {"value": "CZCE.TA", "code": "CZCE.TA", "name": "PTA", "exchange": "CZCE"},
+    {"value": "CZCE.MA", "code": "CZCE.MA", "name": "甲醇", "exchange": "CZCE"},
+    {"value": "CZCE.SR", "code": "CZCE.SR", "name": "白糖", "exchange": "CZCE"},
+    {"value": "CZCE.CF", "code": "CZCE.CF", "name": "棉花", "exchange": "CZCE"},
+    {"value": "CZCE.RM", "code": "CZCE.RM", "name": "菜粕", "exchange": "CZCE"},
+    {"value": "CZCE.SA", "code": "CZCE.SA", "name": "纯碱", "exchange": "CZCE"},
+    {"value": "CZCE.FG", "code": "CZCE.FG", "name": "玻璃", "exchange": "CZCE"},
+    {"value": "CFFEX.IF", "code": "CFFEX.IF", "name": "沪深300股指", "exchange": "CFFEX"},
+    {"value": "CFFEX.IC", "code": "CFFEX.IC", "name": "中证500股指", "exchange": "CFFEX"},
+    {"value": "CFFEX.IH", "code": "CFFEX.IH", "name": "上证50股指", "exchange": "CFFEX"},
+    {"value": "CFFEX.IM", "code": "CFFEX.IM", "name": "中证1000股指", "exchange": "CFFEX"},
+    {"value": "CFFEX.T", "code": "CFFEX.T", "name": "10年期国债", "exchange": "CFFEX"},
+    {"value": "INE.sc", "code": "INE.sc", "name": "原油", "exchange": "INE"},
+    {"value": "INE.nr", "code": "INE.nr", "name": "20号胶", "exchange": "INE"},
+    {"value": "INE.lu", "code": "INE.lu", "name": "低硫燃料油", "exchange": "INE"},
+    {"value": "GFEX.si", "code": "GFEX.si", "name": "工业硅", "exchange": "GFEX"},
+    {"value": "GFEX.lc", "code": "GFEX.lc", "name": "碳酸锂", "exchange": "GFEX"},
+]
 
 
 @dataclass(slots=True)
 class AppConfig:
     symbols: list[str] = field(default_factory=list)
+    selection_mode: str = "all"
+    selection_exchanges: list[str] = field(default_factory=list)
+    selection_symbols: list[str] = field(default_factory=list)
     take_profit_pct: float = 0.5
     stop_loss_pct: float = 0.5
     position_pct: float = 0.1
@@ -37,6 +95,88 @@ class AppConfig:
     tq_password: str = ""
 
 
+def _dedupe_strings(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        token = str(value).strip()
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        result.append(token)
+    return result
+
+
+def is_all_selection_token(value: object) -> bool:
+    token = str(value or "").strip()
+    if not token:
+        return False
+    token_upper = token.upper()
+    return token_upper == "ALL" or token == "全部" or token_upper.startswith("ALL ") or "全部品种" in token
+
+
+def normalize_selection_mode(
+    value: object,
+    symbols: list[str] | None = None,
+    exchanges: list[str] | None = None,
+) -> str:
+    token = str(value or "").strip().lower()
+    if token in SUPPORTED_SELECTION_MODES:
+        return token
+
+    normalized_symbols = normalize_selection_symbols(symbols or [])
+    normalized_exchanges = normalize_selection_exchanges(exchanges or [])
+    if any(is_all_selection_token(symbol) for symbol in normalized_symbols):
+        return "all"
+    if normalized_exchanges:
+        return "exchange"
+    if normalized_symbols:
+        return "custom"
+    return "all"
+
+
+def normalize_selection_exchanges(values: object) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    normalized = [str(value).strip().upper() for value in values if str(value).strip()]
+    return [value for value in _dedupe_strings(normalized) if value in SUPPORTED_EXCHANGES]
+
+
+def normalize_selection_symbols(values: object) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    normalized = [str(value).strip() for value in values if str(value).strip()]
+    return _dedupe_strings(normalized)
+
+
+def derive_legacy_symbols(selection_mode: str, selection_symbols: list[str]) -> list[str]:
+    if selection_mode in {"all", "exchange"}:
+        return ["ALL"]
+    return list(selection_symbols)
+
+
+def _resolve_selection_fields(raw: dict) -> tuple[str, list[str], list[str], list[str]]:
+    raw_symbols = normalize_selection_symbols(raw.get("symbols", []))
+    raw_selection_symbols = raw.get("selection_symbols", raw.get("selection_contracts", []))
+    selection_symbols = normalize_selection_symbols(raw_selection_symbols)
+    selection_exchanges = normalize_selection_exchanges(raw.get("selection_exchanges", []))
+    selection_mode = normalize_selection_mode(
+        raw.get("selection_mode"),
+        selection_symbols or raw_symbols,
+        selection_exchanges,
+    )
+
+    if selection_mode == "custom" and not selection_symbols:
+        selection_symbols = [symbol for symbol in raw_symbols if not is_all_selection_token(symbol)]
+    if selection_mode != "custom":
+        selection_symbols = []
+    if selection_mode != "exchange":
+        selection_exchanges = []
+
+    legacy_symbols = derive_legacy_symbols(selection_mode, selection_symbols)
+    return selection_mode, selection_exchanges, selection_symbols, legacy_symbols
+
+
 def _validate_pct(name: str, value: float) -> None:
     if not 0 <= value <= 1:
         raise ValueError(f"{name} must be in range [0, 1], got {value}")
@@ -45,6 +185,12 @@ def _validate_pct(name: str, value: float) -> None:
 def _validate_config(config: AppConfig) -> None:
     if not isinstance(config.symbols, list) or any(not isinstance(item, str) for item in config.symbols):
         raise ValueError("symbols must be list[str]")
+    if config.selection_mode not in SUPPORTED_SELECTION_MODES:
+        raise ValueError(f"selection_mode must be one of {SUPPORTED_SELECTION_MODES}")
+    if not isinstance(config.selection_exchanges, list) or any(not isinstance(item, str) for item in config.selection_exchanges):
+        raise ValueError("selection_exchanges must be list[str]")
+    if not isinstance(config.selection_symbols, list) or any(not isinstance(item, str) for item in config.selection_symbols):
+        raise ValueError("selection_symbols must be list[str]")
 
     _validate_pct("take_profit_pct", config.take_profit_pct)
     _validate_pct("stop_loss_pct", config.stop_loss_pct)
@@ -66,8 +212,12 @@ def load_config(path: str = "futures_monitor/config.json") -> AppConfig:
     with config_path.open("r", encoding="utf-8") as f:
         raw = json.load(f)
 
+    selection_mode, selection_exchanges, selection_symbols, legacy_symbols = _resolve_selection_fields(raw)
     config = AppConfig(
-        symbols=raw.get("symbols", []),
+        symbols=legacy_symbols,
+        selection_mode=selection_mode,
+        selection_exchanges=selection_exchanges,
+        selection_symbols=selection_symbols,
         take_profit_pct=raw.get("take_profit_pct", 0.5),
         stop_loss_pct=raw.get("stop_loss_pct", 0.5),
         position_pct=raw.get("position_pct", 0.1),
@@ -86,12 +236,39 @@ def load_config(path: str = "futures_monitor/config.json") -> AppConfig:
 
 
 def save_config(config: AppConfig, path: str = "futures_monitor/config.json") -> str:
+    config.selection_exchanges = normalize_selection_exchanges(config.selection_exchanges)
+    config.selection_symbols = normalize_selection_symbols(config.selection_symbols)
+    config.selection_mode = normalize_selection_mode(
+        config.selection_mode,
+        config.selection_symbols or config.symbols,
+        config.selection_exchanges,
+    )
+    config.symbols = derive_legacy_symbols(config.selection_mode, config.selection_symbols)
     _validate_config(config)
+
+    payload = {
+        "symbols": list(config.symbols),
+        "selection_mode": config.selection_mode,
+        "selection_exchanges": list(config.selection_exchanges),
+        "selection_symbols": list(config.selection_symbols),
+        "take_profit_pct": config.take_profit_pct,
+        "stop_loss_pct": config.stop_loss_pct,
+        "position_pct": config.position_pct,
+        "enable_sms": config.enable_sms,
+        "alert_sound": config.alert_sound,
+        "data_dir": config.data_dir,
+        "timezone": config.timezone,
+        "use_real_market_data": config.use_real_market_data,
+        "strict_real_mode": config.strict_real_mode,
+        "ui_refresh_ms": config.ui_refresh_ms,
+        "tq_account": config.tq_account,
+        "tq_password": config.tq_password,
+    }
 
     config_path = Path(path)
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
     with config_path.open("w", encoding="utf-8") as f:
-        json.dump(asdict(config), f, ensure_ascii=False, indent=2)
+        json.dump(payload, f, ensure_ascii=False, indent=2)
 
     return str(config_path)

@@ -10,6 +10,7 @@ exports:
   - MarkBoughtRequest
   - SymbolRow
   - ConfigDTO
+  - SymbolCandidate
 status: IMPLEMENTED
 functions:
   - HealthResponse.model_dump() -> dict
@@ -18,6 +19,7 @@ functions:
   - MarkBoughtRequest.model_dump() -> dict
   - SymbolRow.model_dump() -> dict
   - ConfigDTO.model_dump() -> dict
+  - SymbolCandidate.model_dump() -> dict
 ---
 """
 
@@ -31,10 +33,23 @@ class HealthResponse(BaseModel):
     message: str = "ok"
 
 
+class SymbolCandidate(BaseModel):
+    """Candidate symbol option used by the frontend selector."""
+
+    value: str
+    code: str
+    name: str
+    exchange: str
+    category: str = "contract"
+
+
 class SymbolRow(BaseModel):
     """Single symbol monitoring row status."""
 
     symbol: str
+    display_symbol: str = ""
+    name: str = ""
+    exchange: str = ""
     status: str = "MONITORING"
     last_price: float | None = None
     day_high: float | None = None
@@ -52,6 +67,8 @@ class MonitorStatus(BaseModel):
     running: bool = False
     connection_status: str = "disconnected"
     symbols: list[str] = Field(default_factory=list)
+    selection_mode: str = "all"
+    selection_exchanges: list[str] = Field(default_factory=list)
     rows: list[SymbolRow] = Field(default_factory=list)
     message: str = ""
 
@@ -61,6 +78,8 @@ class MonitorControlRequest(BaseModel):
 
     action: str
     symbols: list[str] = Field(default_factory=list)
+    selection_mode: str = "all"
+    selection_exchanges: list[str] = Field(default_factory=list)
 
 
 class MarkBoughtRequest(BaseModel):
@@ -80,6 +99,9 @@ class ConfigDTO(BaseModel):
     """Configuration data transfer object."""
 
     symbols: list[str] = Field(default_factory=list)
+    selection_mode: str = "all"
+    selection_exchanges: list[str] = Field(default_factory=list)
+    selection_symbols: list[str] = Field(default_factory=list)
     take_profit_pct: float = 0.5
     stop_loss_pct: float = 0.5
     position_pct: float = 0.1
@@ -92,6 +114,7 @@ class ConfigDTO(BaseModel):
     ui_refresh_ms: int = 800
     tq_account: str = ""
     tq_password: str = ""
+    symbol_candidates: list[SymbolCandidate] = Field(default_factory=list)
 
     def model_dump_masked(self) -> dict:
         """Return dict with password masked."""

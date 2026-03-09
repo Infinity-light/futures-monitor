@@ -38,7 +38,7 @@ def get_config_service_dependency() -> ConfigService:
 def get_config(
     service: ConfigService = Depends(get_config_service_dependency),
 ) -> ConfigDTO:
-    """Return current configuration exactly as stored."""
+    """Return current configuration together with symbol selector metadata."""
     try:
         return service.get_config()
     except Exception as exc:
@@ -50,7 +50,7 @@ def update_config(
     payload: ConfigDTO,
     service: ConfigService = Depends(get_config_service_dependency),
 ) -> ConfigDTO:
-    """Update configuration using the exact values submitted by the client."""
+    """Update configuration using structured selection values submitted by the client."""
     try:
         return service.update_config(payload)
     except HTTPException:
