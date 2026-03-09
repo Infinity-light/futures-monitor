@@ -59,7 +59,7 @@ class TestMonitorServiceConfigReload(unittest.TestCase):
         self.assertEqual(service.provider._config.tq_account, 'new-account')
         self.assertEqual(service.provider.get_symbol_metadata('DCE.i2409')['name'], '铁矿石')
 
-    def test_stop_waits_for_thread_exit_before_restart(self) -> None:
+    def test_stop_does_not_report_fully_stopped_before_thread_exit(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = Path(temp_dir) / 'config.json'
             save_config(
@@ -94,13 +94,58 @@ class TestMonitorServiceConfigReload(unittest.TestCase):
                     stop_thread.start()
                     time.sleep(0.05)
                     self.assertTrue(stop_thread.is_alive())
+                    self.assertTrue(service._thread.is_alive())
+                    self.assertTrue(service.get_status().running)
+                    self.assertEqual(service.get_status().message, '监控正在停止中')
+
+                    release_stop.set()
+                    stop_thread.join(timeout=1)
+                    self.assertFalse(stop_thread.is_alive())
+                    self.assertFalse(service.get_status().running)
+                    self.assertEqual(service.get_status().message, '监控未运行')
+
+    def test_start_returns_stopping_message_until_previous_thread_exits(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / 'config.json'
+            save_config(
+                AppConfig(
+                    selection_mode='custom',
+                    selection_symbols=['SHFE.rb'],
+                    use_real_market_data=False,
+                    data_dir=str(Path(temp_dir) / 'data'),
+                ),
+                str(config_path),
+            )
+            service = MonitorService(str(config_path))
+            release_stop = threading.Event()
+
+            def blocking_stream(symbols, max_updates=None, stop_flag=None, selection_mode='custom', selection_exchanges=None):
+                while stop_flag and not stop_flag():
+                    time.sleep(0.01)
+                while stop_flag and stop_flag() and not release_stop.is_set():
+                    time.sleep(0.01)
+                if False:
+                    yield None
+
+            with patch.object(service, 'reload_config', return_value=service.config):
+                with patch.object(service.provider, 'stream_1m_klines', side_effect=blocking_stream):
+                    first = service.start(['SHFE.rb'], selection_mode='custom')
+                    self.assertTrue(first['success'])
+
+                    stop_thread = threading.Thread(target=service.stop)
+                    stop_thread.start()
+                    time.sleep(0.05)
+
+                    retry_while_stopping = service.start(['SHFE.rb'], selection_mode='custom')
+                    self.assertFalse(retry_while_stopping['success'])
+                    self.assertEqual(retry_while_stopping['message'], '监控正在停止中，请稍候再试。')
 
                     release_stop.set()
                     stop_thread.join(timeout=1)
                     self.assertFalse(stop_thread.is_alive())
 
-                    second = service.start(['SHFE.rb'], selection_mode='custom')
-                    self.assertTrue(second['success'])
+                    retry_after_exit = service.start(['SHFE.rb'], selection_mode='custom')
+                    self.assertTrue(retry_after_exit['success'])
                     service.stop()
 
     def test_start_prepares_symbols_for_all_mode_before_stream_ticks(self) -> None:

@@ -249,6 +249,14 @@ class MonitorService:
         if self._thread and not self._thread.is_alive():
             self._thread = None
 
+    def _has_live_thread(self) -> bool:
+        """Return whether the monitor worker thread is still alive."""
+        return self._thread is not None and self._thread.is_alive()
+
+    def _is_stopping(self) -> bool:
+        """Return whether a stop has been requested but the worker has not exited yet."""
+        return self._stop_event.is_set() and self._has_live_thread()
+
     def _resolve_start_symbols(self, requested_symbols: list[str]) -> list[str]:
         """Resolve the concrete symbols that will be monitored for this run."""
         if self.selection_mode == "custom":
@@ -267,7 +275,9 @@ class MonitorService:
     ) -> dict:
         """Start monitoring the specified symbols."""
         self._cleanup_finished_thread()
-        if self._thread and self._thread.is_alive():
+        if self._has_live_thread():
+            if self._stop_event.is_set():
+                return {"success": False, "message": "监控正在停止中，请稍候再试。"}
             return {"success": False, "message": "监控已在运行中。"}
 
         self.reload_config()
@@ -300,21 +310,27 @@ class MonitorService:
 
     def stop(self) -> dict:
         """Stop monitoring."""
+        thread = self._thread
+        if not self._running and not self._has_live_thread():
+            self._emit_connection("已断开")
+            return {"success": True, "message": "监控未运行"}
+
         self._stop_event.set()
-        self._emit_running(False)
-        self._emit_connection("已断开")
         self._emit_log("收到停止指令，正在停止监控线程。")
 
-        thread = self._thread
         if thread and thread.is_alive() and threading.current_thread() is not thread:
             thread.join(timeout=self._stop_join_timeout)
             if thread.is_alive():
                 self._emit_log("监控线程仍在退出中，将继续等待后台循环收尾。", level="WARNING")
-            else:
-                self._thread = None
+                return {"success": True, "message": "监控正在停止中"}
+            self._thread = None
         else:
             self._cleanup_finished_thread()
-        return {"success": True, "message": "监控停止指令已发送"}
+
+        self._emit_connection("已断开")
+        if self._running:
+            self._emit_running(False)
+        return {"success": True, "message": "监控已停止"}
 
     def mark_bought(self, symbol: str) -> dict:
         """Mark a symbol as bought."""
@@ -347,14 +363,15 @@ class MonitorService:
             if machine and runtime:
                 rows.append(SymbolRow(**self._build_row_payload(symbol)))
 
+        stopping = self._is_stopping()
         return MonitorStatus(
-            running=self._running,
+            running=self._running or stopping,
             connection_status=self._connection_status,
             symbols=self.symbols,
             selection_mode=self.selection_mode,
             selection_exchanges=list(self.selection_exchanges),
             rows=rows,
-            message="" if self._running else "监控未运行",
+            message="监控正在停止中" if stopping else ("" if self._running else "监控未运行"),
         )
 
     def _set_day_high_low(self, symbol: str, kline: Kline) -> None:
@@ -463,6 +480,7 @@ class MonitorService:
     def _monitor_loop(self) -> None:
         """Main monitoring loop running in a separate thread."""
         self._emit_connection("连接中")
+        thread = threading.current_thread()
         try:
             stream = self.provider.stream_1m_klines(
                 self.symbols,
@@ -483,8 +501,11 @@ class MonitorService:
             self._emit_log(f"行情线程异常退出: {exc}", level="ERROR")
             self.logger.exception("monitor loop failed")
         finally:
-            self._emit_running(False)
-            self._thread = None
+            if self._thread is thread:
+                self._thread = None
+            self._emit_connection("已断开")
+            if self._running:
+                self._emit_running(False)
             if self._stop_event.is_set():
                 self._emit_log("监控已停止。")
 

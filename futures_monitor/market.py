@@ -320,13 +320,15 @@ class MarketDataProvider:
         )
         if not safe_symbols:
             raise RuntimeError("未提供可订阅的有效合约")
-        serials = {symbol: api.get_kline_serial(symbol, 60, data_length=4) for symbol in safe_symbols}
 
+        serials: dict[str, object] = {}
         emitted = 0
         try:
-            for symbol, series in serials.items():
+            for symbol in safe_symbols:
                 if stop_flag and stop_flag():
                     return
+                series = api.get_kline_serial(symbol, 60, data_length=4)
+                serials[symbol] = series
                 yield self._publish(symbol, self._build_kline_from_series(series))
                 emitted += 1
                 if max_updates is not None and emitted >= max_updates:

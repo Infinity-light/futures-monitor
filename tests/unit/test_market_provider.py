@@ -196,7 +196,15 @@ class TestMarketDataProvider(unittest.TestCase):
                     {'open': 102, 'high': 103, 'low': 101, 'close': 102.5, 'datetime': 3},
                     {'open': 103, 'high': 108, 'low': 97, 'close': 106.5, 'datetime': 4},
                 ]
-            )
+            ),
+            'DCE.i2409': FakeSeries(
+                [
+                    {'open': 200, 'high': 201, 'low': 199, 'close': 200.5, 'datetime': 11},
+                    {'open': 201, 'high': 202, 'low': 200, 'close': 201.5, 'datetime': 12},
+                    {'open': 202, 'high': 203, 'low': 201, 'close': 202.5, 'datetime': 13},
+                    {'open': 203, 'high': 208, 'low': 197, 'close': 206.5, 'datetime': 14},
+                ]
+            ),
         }
 
         class FakeApi:
@@ -206,15 +214,16 @@ class TestMarketDataProvider(unittest.TestCase):
                 self.auth = auth
                 self.wait_update_calls = 0
                 self.closed = False
+                self.serial_requests = []
                 FakeApi.instances.append(self)
 
             def get_kline_serial(self, symbol: str, duration_seconds: int, data_length: int = 4):
-                self.serial_request = (symbol, duration_seconds, data_length)
+                self.serial_requests.append((symbol, duration_seconds, data_length))
                 return fake_serials[symbol]
 
             def wait_update(self):
                 self.wait_update_calls += 1
-                raise AssertionError('wait_update should not be called before first initial yield')
+                raise AssertionError('wait_update should not be called before first initial yield batch')
 
             def close(self):
                 self.closed = True
@@ -222,20 +231,25 @@ class TestMarketDataProvider(unittest.TestCase):
         fake_tqsdk = SimpleNamespace(TqApi=FakeApi, TqAuth=lambda account, password: (account, password))
 
         with patch.dict('sys.modules', {'tqsdk': fake_tqsdk}), patch.object(
-            provider, '_resolve_real_symbols', return_value=['SHFE.rb2405']
+            provider, '_resolve_real_symbols', return_value=['SHFE.rb2405', 'DCE.i2409']
         ):
-            rows = list(provider._stream_real(['SHFE.rb'], max_updates=1, selection_mode='custom'))
+            rows = list(provider._stream_real(['SHFE.rb', 'DCE.i'], max_updates=2, selection_mode='custom'))
 
-        self.assertEqual(len(rows), 1)
-        symbol, kline = rows[0]
-        self.assertEqual(symbol, 'SHFE.rb2405')
-        self.assertEqual(kline.open, 103.0)
-        self.assertEqual(kline.high, 108.0)
-        self.assertEqual(kline.low, 97.0)
-        self.assertEqual(kline.close, 106.5)
-        self.assertEqual(kline.timestamp, 4)
-        self.assertEqual(provider.get_latest_snapshot(['SHFE.rb2405'])['SHFE.rb2405'], kline)
-        self.assertEqual(FakeApi.instances[0].serial_request, ('SHFE.rb2405', 60, 4))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual([symbol for symbol, _ in rows], ['SHFE.rb2405', 'DCE.i2409'])
+        first_symbol, first_kline = rows[0]
+        second_symbol, second_kline = rows[1]
+        self.assertEqual(first_symbol, 'SHFE.rb2405')
+        self.assertEqual(first_kline.close, 106.5)
+        self.assertEqual(second_symbol, 'DCE.i2409')
+        self.assertEqual(second_kline.close, 206.5)
+        snapshot = provider.get_latest_snapshot(['SHFE.rb2405', 'DCE.i2409'])
+        self.assertEqual(snapshot['SHFE.rb2405'], first_kline)
+        self.assertEqual(snapshot['DCE.i2409'], second_kline)
+        self.assertEqual(
+            FakeApi.instances[0].serial_requests,
+            [('SHFE.rb2405', 60, 4), ('DCE.i2409', 60, 4)],
+        )
         self.assertEqual(FakeApi.instances[0].wait_update_calls, 0)
         self.assertTrue(FakeApi.instances[0].closed)
 
