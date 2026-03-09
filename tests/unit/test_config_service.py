@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from futures_monitor.config import get_fixed_monitor_pool
 from futures_monitor.server.schemas import ConfigDTO
 from futures_monitor.server.services.config_service import ConfigService
 
@@ -81,6 +82,19 @@ class TestConfigService(unittest.TestCase):
         self.assertEqual(result.symbol_candidates[0].value, 'SHFE.rb')
         self.assertEqual(result.symbol_candidates[0].name, '螺纹钢')
         self.assertEqual(result.symbol_candidates[0].category.endswith('所') or result.symbol_candidates[0].category == '上期能源', True)
+
+    def test_get_config_keeps_ui_candidates_even_when_real_mode_fixed_pool_excludes_symbol(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / 'config.json'
+            service = ConfigService(str(config_path))
+
+            result = service.get_config()
+            values = {item.value for item in result.symbol_candidates}
+
+        self.assertIn('CZCE.WR', values)
+        self.assertIn('DCE.bb', values)
+        self.assertNotIn('CZCE.WR', get_fixed_monitor_pool('all'))
+        self.assertNotIn('DCE.bb', get_fixed_monitor_pool('all'))
 
 
 if __name__ == '__main__':

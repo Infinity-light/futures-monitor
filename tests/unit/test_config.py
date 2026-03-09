@@ -8,6 +8,7 @@ from futures_monitor.config import (
     AppConfig,
     ensure_runtime_config,
     get_fixed_monitor_pool,
+    get_symbol_candidates,
     load_config,
     resolve_runtime_config_path,
     save_config,
@@ -215,7 +216,7 @@ class TestConfig(unittest.TestCase):
         actual = {item['value']: item['name'] for item in SYMBOL_CANDIDATE_DEFINITIONS}
         self.assertEqual({key: actual.get(key) for key in expected_names}, expected_names)
 
-    def test_fixed_monitor_pool_uses_candidate_definitions_for_all_and_exchange_modes(self) -> None:
+    def test_fixed_monitor_pool_uses_validated_real_mode_pool_for_all_and_exchange_modes(self) -> None:
         all_pool = get_fixed_monitor_pool('all')
         dce_pool = get_fixed_monitor_pool('exchange', ['DCE'])
         ine_pool = get_fixed_monitor_pool('exchange', ['INE'])
@@ -226,17 +227,29 @@ class TestConfig(unittest.TestCase):
         self.assertIn('INE.bc', all_pool)
         self.assertNotIn('SHFE.bc', all_pool)
         self.assertNotIn('DCE.ec', all_pool)
+        self.assertNotIn('CZCE.WR', all_pool)
+        self.assertNotIn('DCE.bb', all_pool)
+        self.assertNotIn('DCE.fb', all_pool)
+        self.assertNotIn('CZCE.WH', all_pool)
         self.assertTrue(all(symbol.startswith('DCE.') for symbol in dce_pool))
         self.assertIn('DCE.i', dce_pool)
         self.assertNotIn('SHFE.rb', dce_pool)
         self.assertNotIn('DCE.ec', dce_pool)
+        self.assertNotIn('DCE.bb', dce_pool)
         self.assertIn('INE.bc', ine_pool)
         self.assertIn('INE.ec', ine_pool)
 
-    def test_fixed_monitor_pool_does_not_repeat_same_product_program_across_exchanges(self) -> None:
+    def test_fixed_monitor_pool_is_decoupled_from_ui_symbol_candidates(self) -> None:
         all_pool = get_fixed_monitor_pool('all')
+        candidate_values = {item['value'] for item in get_symbol_candidates()}
         product_programs = [symbol.rsplit('.', 1)[1] for symbol in all_pool if '.' in symbol]
 
+        self.assertIn('CZCE.WR', candidate_values)
+        self.assertIn('DCE.bb', candidate_values)
+        self.assertIn('DCE.fb', candidate_values)
+        self.assertNotIn('CZCE.WR', all_pool)
+        self.assertNotIn('DCE.bb', all_pool)
+        self.assertNotIn('DCE.fb', all_pool)
         self.assertEqual(product_programs.count('ec'), 1)
         self.assertIn('INE.ec', all_pool)
 

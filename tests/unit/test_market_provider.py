@@ -146,7 +146,7 @@ class TestMarketDataProvider(unittest.TestCase):
 
         self.assertEqual(resolved, get_fixed_monitor_pool('exchange', ['DCE']))
 
-    def test_resolve_real_symbols_all_mode_uses_fixed_candidate_pool_not_dynamic_discovery(self) -> None:
+    def test_resolve_real_symbols_all_mode_uses_validated_fixed_pool_not_ui_candidates(self) -> None:
         cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
         provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve.fixed"))
 
@@ -168,6 +168,9 @@ class TestMarketDataProvider(unittest.TestCase):
         self.assertEqual(api.requested, expected_requests)
         self.assertIn('KQ.m@INE.bc', api.requested)
         self.assertNotIn('KQ.m@SHFE.bc', api.requested)
+        self.assertNotIn('KQ.m@CZCE.WR', api.requested)
+        self.assertNotIn('KQ.m@DCE.bb', api.requested)
+        self.assertNotIn('KQ.m@DCE.fb', api.requested)
         self.assertEqual(resolved[0], f'{expected_pool[0]}2409')
         self.assertEqual(len(resolved), len(expected_pool))
 
@@ -195,6 +198,7 @@ class TestMarketDataProvider(unittest.TestCase):
         expected_pool = get_fixed_monitor_pool('exchange', ['SHFE'])
         expected_requests = [f'KQ.m@{symbol}' if '.' in symbol and not any(char.isdigit() for char in symbol.rsplit('.', 1)[1]) else symbol for symbol in expected_pool]
         self.assertEqual(api.requested, expected_requests)
+        self.assertNotIn('KQ.m@CZCE.WR', api.requested)
         self.assertEqual(len(resolved), len(expected_pool))
         self.assertTrue(all(symbol.startswith('SHFE.') for symbol in resolved))
 

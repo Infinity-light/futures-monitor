@@ -57,6 +57,84 @@ _DEFAULT_RUNTIME_DATA_DIR = _PACKAGE_ROOT.parent / ".data"
 _RUNTIME_CONFIG_ENV = "FUTURES_MONITOR_RUNTIME_CONFIG"
 _RUNTIME_DATA_DIR_ENV = "FUTURES_MONITOR_DATA_DIR"
 _TEMPLATE_CONFIG_ENV = "FUTURES_MONITOR_CONFIG_TEMPLATE"
+_VALIDATED_FIXED_MONITOR_POOL_VALUES = [
+    "SHFE.rb",
+    "SHFE.hc",
+    "SHFE.fu",
+    "SHFE.bu",
+    "SHFE.au",
+    "SHFE.ag",
+    "SHFE.cu",
+    "SHFE.al",
+    "SHFE.zn",
+    "SHFE.ru",
+    "SHFE.sn",
+    "INE.bc",
+    "SHFE.br",
+    "SHFE.pb",
+    "SHFE.ni",
+    "SHFE.ad",
+    "SHFE.ao",
+    "SHFE.sp",
+    "SHFE.ss",
+    "DCE.i",
+    "DCE.m",
+    "DCE.y",
+    "DCE.a",
+    "DCE.c",
+    "DCE.cs",
+    "DCE.eg",
+    "DCE.pp",
+    "DCE.v",
+    "DCE.l",
+    "DCE.p",
+    "DCE.jd",
+    "DCE.j",
+    "DCE.jm",
+    "DCE.lh",
+    "DCE.rr",
+    "DCE.bz",
+    "DCE.pg",
+    "DCE.lg",
+    "CZCE.TA",
+    "CZCE.MA",
+    "CZCE.SR",
+    "CZCE.CF",
+    "CZCE.RM",
+    "CZCE.SA",
+    "CZCE.FG",
+    "CZCE.UR",
+    "CZCE.ZC",
+    "CZCE.PK",
+    "CZCE.AP",
+    "CZCE.SF",
+    "CZCE.PF",
+    "CZCE.CJ",
+    "CZCE.SM",
+    "CZCE.PX",
+    "CZCE.OI",
+    "CZCE.SH",
+    "CZCE.PR",
+    "CZCE.CY",
+    "CZCE.PL",
+    "CFFEX.IF",
+    "CFFEX.IC",
+    "CFFEX.IH",
+    "CFFEX.IM",
+    "CFFEX.T",
+    "CFFEX.TS",
+    "CFFEX.TF",
+    "CFFEX.TL",
+    "INE.sc",
+    "INE.nr",
+    "INE.lu",
+    "INE.ec",
+    "GFEX.si",
+    "GFEX.lc",
+    "GFEX.pt",
+    "GFEX.ps",
+    "GFEX.pd",
+]
 SYMBOL_CANDIDATE_DEFINITIONS = [
     {"value": "SHFE.rb", "code": "SHFE.rb", "name": "螺纹钢", "exchange": "SHFE"},
     {"value": "SHFE.hc", "code": "SHFE.hc", "name": "热轧卷板", "exchange": "SHFE"},
@@ -266,11 +344,11 @@ def get_fixed_monitor_pool(selection_mode: str = "all", selection_exchanges: lis
     if selection_mode == "exchange":
         exchanges = set(normalize_selection_exchanges(selection_exchanges or []))
         return [
-            str(item["value"])
-            for item in SYMBOL_CANDIDATE_DEFINITIONS
-            if str(item.get("exchange", "")).upper() in exchanges
+            value
+            for value in _VALIDATED_FIXED_MONITOR_POOL_VALUES
+            if value.split(".", 1)[0].upper() in exchanges
         ]
-    return [str(item["value"]) for item in SYMBOL_CANDIDATE_DEFINITIONS]
+    return list(_VALIDATED_FIXED_MONITOR_POOL_VALUES)
 
 
 def _resolve_selection_fields(raw: dict) -> tuple[str, list[str], list[str], list[str]]:
