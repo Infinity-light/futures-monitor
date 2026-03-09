@@ -225,10 +225,20 @@ class TestConfig(unittest.TestCase):
         self.assertIn('DCE.i', all_pool)
         self.assertIn('INE.bc', all_pool)
         self.assertNotIn('SHFE.bc', all_pool)
+        self.assertNotIn('DCE.ec', all_pool)
         self.assertTrue(all(symbol.startswith('DCE.') for symbol in dce_pool))
         self.assertIn('DCE.i', dce_pool)
         self.assertNotIn('SHFE.rb', dce_pool)
+        self.assertNotIn('DCE.ec', dce_pool)
         self.assertIn('INE.bc', ine_pool)
+        self.assertIn('INE.ec', ine_pool)
+
+    def test_fixed_monitor_pool_does_not_repeat_same_product_program_across_exchanges(self) -> None:
+        all_pool = get_fixed_monitor_pool('all')
+        product_programs = [symbol.rsplit('.', 1)[1] for symbol in all_pool if '.' in symbol]
+
+        self.assertEqual(product_programs.count('ec'), 1)
+        self.assertIn('INE.ec', all_pool)
 
     def test_symbol_candidate_definitions_cover_latest_cn_name_backfill_batch(self) -> None:
         from futures_monitor.config import SYMBOL_CANDIDATE_DEFINITIONS

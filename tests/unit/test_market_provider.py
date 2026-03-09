@@ -219,6 +219,29 @@ class TestMarketDataProvider(unittest.TestCase):
         self.assertNotIn('KQ.m@SHFE.bc', api.requested)
         self.assertIn('INE.bc2409', resolved)
 
+    def test_resolve_real_symbols_all_mode_uses_ine_ec_token_and_never_dce_ec(self) -> None:
+        cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve.ine_ec"))
+
+        class FakeApi:
+            def __init__(self) -> None:
+                self.requested = []
+
+            def get_quote(self, symbol: str):
+                self.requested.append(symbol)
+                if symbol == 'KQ.m@INE.ec':
+                    return SimpleNamespace(underlying_symbol='INE.ec2504')
+                if symbol == 'KQ.m@INE.bc':
+                    return SimpleNamespace(underlying_symbol='INE.bc2409')
+                return SimpleNamespace(underlying_symbol='SHFE.rb2405')
+
+        api = FakeApi()
+        resolved = provider._resolve_real_symbols([], api=api, selection_mode='all')
+
+        self.assertIn('KQ.m@INE.ec', api.requested)
+        self.assertNotIn('KQ.m@DCE.ec', api.requested)
+        self.assertIn('INE.ec2504', resolved)
+
     def test_stream_real_yields_initial_rows_before_first_wait_update(self) -> None:
         cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
         provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.real.init"))

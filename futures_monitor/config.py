@@ -94,7 +94,6 @@ SYMBOL_CANDIDATE_DEFINITIONS = [
     {"value": "DCE.lh", "code": "DCE.lh", "name": "生猪", "exchange": "DCE"},
     {"value": "DCE.bb", "code": "DCE.bb", "name": "胶合板", "exchange": "DCE"},
     {"value": "DCE.rr", "code": "DCE.rr", "name": "粳米", "exchange": "DCE"},
-    {"value": "DCE.ec", "code": "DCE.ec", "name": "集运指数（欧线）", "exchange": "DCE"},
     {"value": "DCE.bz", "code": "DCE.bz", "name": "纯苯", "exchange": "DCE"},
     {"value": "DCE.pg", "code": "DCE.pg", "name": "液化石油气", "exchange": "DCE"},
     {"value": "DCE.lg", "code": "DCE.lg", "name": "原木", "exchange": "DCE"},
