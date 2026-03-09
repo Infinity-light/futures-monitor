@@ -140,19 +140,22 @@ class MarketDataProvider:
                 mapping[f"{exchange}.{product}".upper()] = symbol
         return mapping
 
+    def _is_product_program_symbol(self, symbol: str) -> bool:
+        token = str(symbol).strip()
+        if "." not in token:
+            return False
+        instrument = token.rsplit(".", 1)[1]
+        return bool(instrument) and not any(char.isdigit() for char in instrument)
+
     def _resolve_quote_symbol(self, api, requested_symbol: str) -> str:
         token = str(requested_symbol).strip()
         if not token:
             return token
-        quote = api.get_quote(token)
+        quote_symbol = f"KQ.m@{token}" if self._is_product_program_symbol(token) else token
+        quote = api.get_quote(quote_symbol)
         underlying_symbol = str(getattr(quote, "underlying_symbol", "") or "").strip()
         if underlying_symbol:
             return underlying_symbol
-        if "." in token and not any(char.isdigit() for char in token.rsplit(".", 1)[1]):
-            quote = api.get_quote(f"KQ.m@{token}")
-            underlying_symbol = str(getattr(quote, "underlying_symbol", "") or "").strip()
-            if underlying_symbol:
-                return underlying_symbol
         return token
 
     def _resolve_mock_symbols(

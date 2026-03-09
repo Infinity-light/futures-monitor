@@ -64,21 +64,69 @@ class TestMarketDataProvider(unittest.TestCase):
 
         self.assertEqual({symbol for symbol, _ in rows}, {"SHFE.rb"})
 
+    def test_resolve_quote_symbol_prefers_main_cont_for_product_program_value(self) -> None:
+        cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve.product"))
+
+        class FakeApi:
+            def __init__(self) -> None:
+                self.requested = []
+
+            def get_quote(self, symbol: str):
+                self.requested.append(symbol)
+                mapping = {
+                    'KQ.m@SHFE.rb': SimpleNamespace(underlying_symbol='SHFE.rb2405'),
+                }
+                return mapping.get(symbol, SimpleNamespace(underlying_symbol=''))
+
+        api = FakeApi()
+        resolved = provider._resolve_quote_symbol(api, 'SHFE.rb')
+
+        self.assertEqual(resolved, 'SHFE.rb2405')
+        self.assertEqual(api.requested, ['KQ.m@SHFE.rb'])
+
+    def test_resolve_quote_symbol_keeps_direct_lookup_for_concrete_contract(self) -> None:
+        cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve.contract"))
+
+        class FakeApi:
+            def __init__(self) -> None:
+                self.requested = []
+
+            def get_quote(self, symbol: str):
+                self.requested.append(symbol)
+                mapping = {
+                    'SHFE.rb2605': SimpleNamespace(underlying_symbol=''),
+                }
+                return mapping.get(symbol, SimpleNamespace(underlying_symbol=''))
+
+        api = FakeApi()
+        resolved = provider._resolve_quote_symbol(api, 'SHFE.rb2605')
+
+        self.assertEqual(resolved, 'SHFE.rb2605')
+        self.assertEqual(api.requested, ['SHFE.rb2605'])
+
     def test_resolve_real_symbols_maps_program_values_to_active_contracts(self) -> None:
         cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
         provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve"))
 
         class FakeApi:
+            def __init__(self) -> None:
+                self.requested = []
+
             def get_quote(self, symbol: str):
+                self.requested.append(symbol)
                 mapping = {
-                    'SHFE.rb': SimpleNamespace(underlying_symbol='SHFE.rb2405'),
-                    'DCE.i': SimpleNamespace(underlying_symbol='DCE.i2409'),
+                    'KQ.m@SHFE.rb': SimpleNamespace(underlying_symbol='SHFE.rb2405'),
+                    'KQ.m@DCE.i': SimpleNamespace(underlying_symbol='DCE.i2409'),
                 }
                 return mapping.get(symbol, SimpleNamespace(underlying_symbol=''))
 
-        resolved = provider._resolve_real_symbols(['SHFE.rb', 'DCE.i'], api=FakeApi(), selection_mode='custom')
+        api = FakeApi()
+        resolved = provider._resolve_real_symbols(['SHFE.rb', 'DCE.i'], api=api, selection_mode='custom')
 
         self.assertEqual(resolved, ['SHFE.rb2405', 'DCE.i2409'])
+        self.assertEqual(api.requested, ['KQ.m@SHFE.rb', 'KQ.m@DCE.i'])
 
     def test_get_symbol_metadata_prefers_product_name_for_active_contract(self) -> None:
         cfg = AppConfig(use_real_market_data=False)
@@ -108,13 +156,16 @@ class TestMarketDataProvider(unittest.TestCase):
 
             def get_quote(self, symbol: str):
                 self.requested.append(symbol)
+                if symbol.startswith('KQ.m@'):
+                    return SimpleNamespace(underlying_symbol=f"{symbol.removeprefix('KQ.m@')}2409")
                 return SimpleNamespace(underlying_symbol=f'{symbol}2409')
 
         api = FakeApi()
         resolved = provider._resolve_real_symbols([], api=api, selection_mode='all')
 
         expected_pool = get_fixed_monitor_pool('all')
-        self.assertEqual(api.requested, expected_pool)
+        expected_requests = [f'KQ.m@{symbol}' if '.' in symbol and not any(char.isdigit() for char in symbol.rsplit('.', 1)[1]) else symbol for symbol in expected_pool]
+        self.assertEqual(api.requested, expected_requests)
         self.assertEqual(resolved[0], f'{expected_pool[0]}2409')
         self.assertEqual(len(resolved), len(expected_pool))
 
@@ -128,6 +179,10 @@ class TestMarketDataProvider(unittest.TestCase):
 
             def get_quote(self, symbol: str):
                 self.requested.append(symbol)
+                if symbol.startswith('KQ.m@'):
+                    base_symbol = symbol.removeprefix('KQ.m@')
+                    suffix = base_symbol.split('.', 1)[1]
+                    return SimpleNamespace(underlying_symbol=f'SHFE.{suffix}2409')
                 suffix = symbol.split('.', 1)[1]
                 return SimpleNamespace(underlying_symbol=f'SHFE.{suffix}2409')
 
@@ -136,7 +191,8 @@ class TestMarketDataProvider(unittest.TestCase):
         resolved = provider._resolve_real_symbols([], api=api, selection_mode='exchange', selection_exchanges=['SHFE'])
 
         expected_pool = get_fixed_monitor_pool('exchange', ['SHFE'])
-        self.assertEqual(api.requested, expected_pool)
+        expected_requests = [f'KQ.m@{symbol}' if '.' in symbol and not any(char.isdigit() for char in symbol.rsplit('.', 1)[1]) else symbol for symbol in expected_pool]
+        self.assertEqual(api.requested, expected_requests)
         self.assertEqual(len(resolved), len(expected_pool))
         self.assertTrue(all(symbol.startswith('SHFE.') for symbol in resolved))
 
