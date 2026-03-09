@@ -176,6 +176,69 @@ class TestMarketDataProvider(unittest.TestCase):
         self.assertEqual(resolved, ['SHFE.rb2605', 'SHFE.bu2604'])
         self.assertFalse(api.query_quotes_called)
 
+    def test_stream_real_yields_initial_rows_before_first_wait_update(self) -> None:
+        cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.real.init"))
+
+        class FakeSeries:
+            def __init__(self, rows):
+                self._rows = rows
+                self.iloc = self
+
+            def __getitem__(self, index):
+                return self._rows[index]
+
+        fake_serials = {
+            'SHFE.rb2405': FakeSeries(
+                [
+                    {'open': 100, 'high': 101, 'low': 99, 'close': 100.5, 'datetime': 1},
+                    {'open': 101, 'high': 102, 'low': 100, 'close': 101.5, 'datetime': 2},
+                    {'open': 102, 'high': 103, 'low': 101, 'close': 102.5, 'datetime': 3},
+                    {'open': 103, 'high': 108, 'low': 97, 'close': 106.5, 'datetime': 4},
+                ]
+            )
+        }
+
+        class FakeApi:
+            instances = []
+
+            def __init__(self, auth=None) -> None:
+                self.auth = auth
+                self.wait_update_calls = 0
+                self.closed = False
+                FakeApi.instances.append(self)
+
+            def get_kline_serial(self, symbol: str, duration_seconds: int, data_length: int = 4):
+                self.serial_request = (symbol, duration_seconds, data_length)
+                return fake_serials[symbol]
+
+            def wait_update(self):
+                self.wait_update_calls += 1
+                raise AssertionError('wait_update should not be called before first initial yield')
+
+            def close(self):
+                self.closed = True
+
+        fake_tqsdk = SimpleNamespace(TqApi=FakeApi, TqAuth=lambda account, password: (account, password))
+
+        with patch.dict('sys.modules', {'tqsdk': fake_tqsdk}), patch.object(
+            provider, '_resolve_real_symbols', return_value=['SHFE.rb2405']
+        ):
+            rows = list(provider._stream_real(['SHFE.rb'], max_updates=1, selection_mode='custom'))
+
+        self.assertEqual(len(rows), 1)
+        symbol, kline = rows[0]
+        self.assertEqual(symbol, 'SHFE.rb2405')
+        self.assertEqual(kline.open, 103.0)
+        self.assertEqual(kline.high, 108.0)
+        self.assertEqual(kline.low, 97.0)
+        self.assertEqual(kline.close, 106.5)
+        self.assertEqual(kline.timestamp, 4)
+        self.assertEqual(provider.get_latest_snapshot(['SHFE.rb2405'])['SHFE.rb2405'], kline)
+        self.assertEqual(FakeApi.instances[0].serial_request, ('SHFE.rb2405', 60, 4))
+        self.assertEqual(FakeApi.instances[0].wait_update_calls, 0)
+        self.assertTrue(FakeApi.instances[0].closed)
+
 
 if __name__ == "__main__":
     unittest.main()

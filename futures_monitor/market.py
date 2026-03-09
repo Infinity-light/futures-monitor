@@ -285,6 +285,16 @@ class MarketDataProvider:
                 if max_updates is not None and emitted >= max_updates:
                     return
 
+    def _build_kline_from_series(self, series) -> Kline:
+        last = series.iloc[-1]
+        return Kline(
+            open=float(last["open"]),
+            high=float(last["high"]),
+            low=float(last["low"]),
+            close=float(last["close"]),
+            timestamp=int(last["datetime"]),
+        )
+
     def _stream_real(
         self,
         symbols: list[str],
@@ -314,6 +324,14 @@ class MarketDataProvider:
 
         emitted = 0
         try:
+            for symbol, series in serials.items():
+                if stop_flag and stop_flag():
+                    return
+                yield self._publish(symbol, self._build_kline_from_series(series))
+                emitted += 1
+                if max_updates is not None and emitted >= max_updates:
+                    return
+
             while True:
                 if stop_flag and stop_flag():
                     return
@@ -321,15 +339,7 @@ class MarketDataProvider:
                 for symbol, series in serials.items():
                     if stop_flag and stop_flag():
                         return
-                    last = series.iloc[-1]
-                    kline = Kline(
-                        open=float(last["open"]),
-                        high=float(last["high"]),
-                        low=float(last["low"]),
-                        close=float(last["close"]),
-                        timestamp=int(last["datetime"]),
-                    )
-                    yield self._publish(symbol, kline)
+                    yield self._publish(symbol, self._build_kline_from_series(series))
                     emitted += 1
                     if max_updates is not None and emitted >= max_updates:
                         return
