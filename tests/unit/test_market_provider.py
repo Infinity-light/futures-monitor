@@ -90,6 +90,14 @@ class TestMarketDataProvider(unittest.TestCase):
         self.assertEqual(metadata['name'], '螺纹钢')
         self.assertEqual(metadata['exchange'], 'SHFE')
 
+    def test_resolve_symbols_prepares_exchange_mode_symbols_in_mock_mode(self) -> None:
+        cfg = AppConfig(use_real_market_data=False)
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve.mock"))
+
+        resolved = provider.resolve_symbols([], selection_mode='exchange', selection_exchanges=['DCE'])
+
+        self.assertEqual(resolved, ['DCE.i', 'DCE.m'])
+
 
 if __name__ == "__main__":
     unittest.main()

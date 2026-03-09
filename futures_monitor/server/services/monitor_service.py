@@ -143,6 +143,7 @@ class MonitorService:
         self._running = False
         self._connection_status = "disconnected"
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._stop_join_timeout = 2.0
 
     def _load_config(self, config_path: str) -> AppConfig:
         """Load configuration from file."""
@@ -241,6 +242,21 @@ class MonitorService:
             self.runtime_map.setdefault(symbol, _build_runtime_state())
             self._emit_row(symbol)
 
+    def _cleanup_finished_thread(self) -> None:
+        """Drop stale thread reference after monitor loop exits."""
+        if self._thread and not self._thread.is_alive():
+            self._thread = None
+
+    def _resolve_start_symbols(self, requested_symbols: list[str]) -> list[str]:
+        """Resolve the concrete symbols that will be monitored for this run."""
+        if self.selection_mode == "custom":
+            return requested_symbols or ["SHFE.rb"]
+        return self.provider.resolve_symbols(
+            requested_symbols,
+            selection_mode=self.selection_mode,
+            selection_exchanges=self.selection_exchanges,
+        )
+
     def start(
         self,
         symbols: list[str],
@@ -248,16 +264,15 @@ class MonitorService:
         selection_exchanges: list[str] | None = None,
     ) -> dict:
         """Start monitoring the specified symbols."""
+        self._cleanup_finished_thread()
         if self._thread and self._thread.is_alive():
             return {"success": False, "message": "监控已在运行中。"}
 
         self.reload_config()
         selected_symbols = list(symbols) if symbols else list(self.config.selection_symbols)
-        self.symbols = selected_symbols or ["SHFE.rb"]
         self.selection_mode = selection_mode or self.config.selection_mode
         self.selection_exchanges = list(selection_exchanges or self.config.selection_exchanges)
-        if self.selection_mode != "custom":
-            self.symbols = []
+        self.symbols = self._resolve_start_symbols(selected_symbols)
         self._prepare_symbol_context(self.symbols)
 
         self._stop_event.clear()
@@ -276,7 +291,7 @@ class MonitorService:
         return {
             "success": True,
             "message": msg,
-            "symbols": self.symbols,
+            "symbols": list(self.symbols),
             "selection_mode": self.selection_mode,
             "selection_exchanges": self.selection_exchanges,
         }
@@ -287,6 +302,16 @@ class MonitorService:
         self._emit_running(False)
         self._emit_connection("已断开")
         self._emit_log("收到停止指令，正在停止监控线程。")
+
+        thread = self._thread
+        if thread and thread.is_alive() and threading.current_thread() is not thread:
+            thread.join(timeout=self._stop_join_timeout)
+            if thread.is_alive():
+                self._emit_log("监控线程仍在退出中，将继续等待后台循环收尾。", level="WARNING")
+            else:
+                self._thread = None
+        else:
+            self._cleanup_finished_thread()
         return {"success": True, "message": "监控停止指令已发送"}
 
     def mark_bought(self, symbol: str) -> dict:
@@ -458,6 +483,7 @@ class MonitorService:
             self.logger.exception("monitor loop failed")
         finally:
             self._emit_running(False)
+            self._thread = None
             if self._stop_event.is_set():
                 self._emit_log("监控已停止。")
 

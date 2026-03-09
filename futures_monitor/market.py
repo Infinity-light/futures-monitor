@@ -9,6 +9,7 @@ exports:
 status: IMPLEMENTED
 functions:
   - MarketDataProvider.__init__(config: object, logger: object) -> None
+  - MarketDataProvider.resolve_symbols(symbols: list[str], selection_mode: str = "custom", selection_exchanges: list[str] | None = None) -> list[str]
   - MarketDataProvider.stream_1m_klines(symbols: list[str], max_updates: int | None = None, stop_flag: callable | None = None, selection_mode: str = "custom", selection_exchanges: list[str] | None = None)
   - MarketDataProvider.get_latest_snapshot(symbols: list[str]) -> dict[str, Kline]
 ---
@@ -226,6 +227,45 @@ class MarketDataProvider:
             if resolved_symbol != mapped_from:
                 self._logger.info("自定义品种 %s 已解析为当前有效合约 %s", mapped_from, resolved_symbol)
         return self._dedupe_symbols(self._normalize_symbols(resolved))
+
+    def resolve_symbols(
+        self,
+        symbols: list[str],
+        selection_mode: str = "custom",
+        selection_exchanges: list[str] | None = None,
+    ) -> list[str]:
+        use_real = bool(getattr(self._config, "use_real_market_data", False))
+        strict_real_mode = bool(getattr(self._config, "strict_real_mode", True))
+
+        if not use_real:
+            return self._resolve_mock_symbols(
+                symbols,
+                selection_mode=selection_mode,
+                selection_exchanges=selection_exchanges,
+            )
+
+        try:
+            from tqsdk import TqApi, TqAuth
+
+            api = TqApi(auth=TqAuth(self._config.tq_account, self._config.tq_password))
+            try:
+                return self._resolve_real_symbols(
+                    symbols,
+                    api,
+                    selection_mode=selection_mode,
+                    selection_exchanges=selection_exchanges,
+                )
+            finally:
+                api.close()
+        except Exception as exc:
+            if strict_real_mode:
+                raise ValueError(f"{exc} 如确认账号密码无误，请检查该账户是否开通快期/TqSdk认证权限。") from exc
+            self._logger.warning("Real market data unavailable, fallback to mock symbol resolution: %s", exc)
+            return self._resolve_mock_symbols(
+                symbols,
+                selection_mode=selection_mode,
+                selection_exchanges=selection_exchanges,
+            )
 
     def _stream_mock(
         self,
