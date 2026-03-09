@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from datetime import datetime
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -146,6 +147,9 @@ class MonitorService:
         self._connection_status = "disconnected"
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stop_join_timeout = 2.0
+        self._start_wait_timeout = 1.2
+        self._start_wait_interval = 0.05
+        self._start_ready_min_rows = 1
 
     def _load_config(self, config_path: str) -> AppConfig:
         """Load configuration from file."""
@@ -267,6 +271,40 @@ class MonitorService:
             selection_exchanges=self.selection_exchanges,
         )
 
+    def _has_ready_start_snapshot(self) -> bool:
+        """Return whether the first start snapshot already contains usable market state."""
+        ready_rows = 0
+        for symbol in self.symbols:
+            runtime = self.runtime_map.get(symbol)
+            if not runtime:
+                continue
+            latest = self.provider.get_latest_snapshot([symbol]).get(symbol)
+            has_price = latest is not None and latest.close is not None
+            has_range = runtime.get("day_high") is not None and runtime.get("day_low") is not None
+            has_event = str(runtime.get("last_event") or "").strip() not in {"", "等待行情"}
+            if has_price and (has_range or has_event):
+                ready_rows += 1
+                if ready_rows >= self._start_ready_min_rows:
+                    return True
+        return False
+
+    def _wait_for_start_snapshot(self) -> None:
+        """Wait briefly for the first batch of usable row data before returning start status."""
+        deadline = time.monotonic() + self._start_wait_timeout
+        while time.monotonic() < deadline:
+            if not self._has_live_thread() or self._stop_event.is_set():
+                return
+            if self._has_ready_start_snapshot():
+                return
+            time.sleep(self._start_wait_interval)
+
+    def _clear_monitor_state(self) -> None:
+        """Reset monitor state so stopped snapshots do not expose stale rows."""
+        self.symbols = []
+        self.strategy_map.clear()
+        self.machine_map.clear()
+        self.runtime_map.clear()
+
     def start(
         self,
         symbols: list[str],
@@ -299,6 +337,7 @@ class MonitorService:
         else:
             msg = f"启动监控: {', '.join(self.symbols)}"
         self._emit_log(msg)
+        self._wait_for_start_snapshot()
 
         return {
             "success": True,
@@ -330,6 +369,7 @@ class MonitorService:
         self._emit_connection("已断开")
         if self._running:
             self._emit_running(False)
+        self._clear_monitor_state()
         return {"success": True, "message": "监控已停止"}
 
     def mark_bought(self, symbol: str) -> dict:
@@ -455,6 +495,7 @@ class MonitorService:
 
     def _process_tick(self, symbol: str, kline: Kline) -> None:
         """Process a single tick for a symbol."""
+        self.provider._latest_snapshot[symbol] = kline
         self._set_day_high_low(symbol, kline)
 
         machine = self.machine_map.setdefault(symbol, StrategyStateMachine())
@@ -508,6 +549,7 @@ class MonitorService:
                 self._emit_running(False)
             if self._stop_event.is_set():
                 self._emit_log("监控已停止。")
+                self._clear_monitor_state()
 
 
 _monitor_service_instance: MonitorService | None = None

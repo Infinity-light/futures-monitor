@@ -195,6 +195,19 @@ class TestConfig(unittest.TestCase):
 
         self.assertTrue(any(item["value"] == "SHFE.rb" and item["name"] == "螺纹钢" for item in SYMBOL_CANDIDATE_DEFINITIONS))
 
+    def test_symbol_candidate_definitions_include_recent_common_cn_names(self) -> None:
+        from futures_monitor.config import SYMBOL_CANDIDATE_DEFINITIONS
+
+        expected_names = {
+            'CZCE.UR': '尿素',
+            'DCE.v': 'PVC',
+            'CZCE.WH': '强麦',
+            'CZCE.WR': '线材',
+            'CZCE.ZC': '郑煤',
+        }
+        actual = {item['value']: item['name'] for item in SYMBOL_CANDIDATE_DEFINITIONS}
+        self.assertEqual({key: actual.get(key) for key in expected_names}, expected_names)
+
     def test_invalid_pct_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "cfg.json"
