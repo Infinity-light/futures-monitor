@@ -98,6 +98,84 @@ class TestMarketDataProvider(unittest.TestCase):
 
         self.assertEqual(resolved, ['DCE.i', 'DCE.m'])
 
+    def test_resolve_all_real_symbols_prefers_cont_quotes_direct_symbols(self) -> None:
+        cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve.cont"))
+
+        class FakeApi:
+            def __init__(self) -> None:
+                self.query_quotes_called = False
+
+            def query_cont_quotes(self, **kwargs):
+                self.query_cont_quotes_kwargs = kwargs
+                return ['SHFE.rb2605', 'SHFE.bu2604']
+
+            def query_quotes(self, **kwargs):
+                self.query_quotes_called = True
+                return ['SHFE.rb2601', 'SHFE.rb2605', 'SHFE.bu2604']
+
+        api = FakeApi()
+
+        resolved = provider._resolve_all_real_symbols(api)
+
+        self.assertEqual(resolved, ['SHFE.rb2605', 'SHFE.bu2604'])
+        self.assertEqual(api.query_cont_quotes_kwargs, {})
+        self.assertFalse(api.query_quotes_called)
+
+    def test_resolve_all_real_symbols_falls_back_only_when_cont_quotes_empty(self) -> None:
+        cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve.fallback"))
+
+        class FakeApi:
+            def __init__(self) -> None:
+                self.query_quotes_called = False
+
+            def query_cont_quotes(self, **kwargs):
+                self.query_cont_quotes_kwargs = kwargs
+                return []
+
+            def query_quotes(self, **kwargs):
+                self.query_quotes_called = True
+                self.query_quotes_kwargs = kwargs
+                return ['SHFE.rb2601', 'SHFE.rb2605', 'SHFE.bu2604']
+
+        api = FakeApi()
+
+        resolved = provider._resolve_all_real_symbols(api, exchange_id='SHFE')
+
+        self.assertTrue(api.query_quotes_called)
+        self.assertEqual(api.query_cont_quotes_kwargs, {'exchange_id': 'SHFE'})
+        self.assertEqual(
+            api.query_quotes_kwargs,
+            {'ins_class': 'FUTURE', 'expired': False, 'exchange_id': 'SHFE'},
+        )
+        self.assertEqual(resolved, ['SHFE.rb2601', 'SHFE.rb2605', 'SHFE.bu2604'])
+
+    def test_resolve_real_symbols_exchange_mode_uses_active_contracts_only(self) -> None:
+        cfg = AppConfig(use_real_market_data=True, tq_account='demo', tq_password='demo')
+        provider = MarketDataProvider(config=cfg, logger=get_logger("test.market.resolve.exchange"))
+
+        class FakeApi:
+            def __init__(self) -> None:
+                self.query_quotes_called = False
+
+            def query_cont_quotes(self, **kwargs):
+                exchange_id = kwargs.get('exchange_id')
+                if exchange_id == 'SHFE':
+                    return ['SHFE.rb2605', 'SHFE.bu2604']
+                return []
+
+            def query_quotes(self, **kwargs):
+                self.query_quotes_called = True
+                return ['SHFE.rb2601', 'SHFE.rb2605', 'SHFE.bu2601', 'SHFE.bu2604']
+
+        api = FakeApi()
+
+        resolved = provider._resolve_real_symbols([], api=api, selection_mode='exchange', selection_exchanges=['SHFE'])
+
+        self.assertEqual(resolved, ['SHFE.rb2605', 'SHFE.bu2604'])
+        self.assertFalse(api.query_quotes_called)
+
 
 if __name__ == "__main__":
     unittest.main()

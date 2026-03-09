@@ -176,19 +176,10 @@ class MarketDataProvider:
         return resolved or ["SHFE.rb2410"]
 
     def _resolve_all_real_symbols(self, api, exchange_id: str | None = None) -> list[str]:
-        resolved: list[str] = []
-
         query_kwargs = {"exchange_id": exchange_id} if exchange_id else {}
-        cont_symbols = list(api.query_cont_quotes(**query_kwargs))
-        for cont_symbol in cont_symbols:
-            quote = api.get_quote(cont_symbol)
-            underlying_symbol = getattr(quote, "underlying_symbol", "")
-            if underlying_symbol:
-                resolved.append(str(underlying_symbol))
-
-        resolved = self._dedupe_symbols(self._normalize_symbols(resolved))
-        if resolved:
-            return resolved
+        cont_symbols = self._dedupe_symbols(self._normalize_symbols(list(api.query_cont_quotes(**query_kwargs))))
+        if cont_symbols:
+            return cont_symbols
 
         futures = list(api.query_quotes(ins_class="FUTURE", expired=False, **query_kwargs))
         return self._dedupe_symbols(self._normalize_symbols(futures))
